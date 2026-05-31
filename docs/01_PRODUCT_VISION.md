@@ -2,48 +2,104 @@
 
 ## Propósito
 
-VersaEnergy será una app nueva e independiente para gestión energética, diseñada como compañera visual y funcional de VersaMaint.
+VersaEnergy será una app nueva e independiente para **Energy & Utilities Management**, diseñada como compañera visual y funcional de VersaMaint.
 
-No debe ser solamente un dashboard de consumo. Debe ser una herramienta para entender cómo entra, fluye, se mide, se consume, se pierde y se mejora la energía dentro de una planta, edificio o proceso.
+No debe ser solamente un dashboard de electricidad. Debe ser una herramienta para entender cómo entran, fluyen, se miden, se consumen, se pierden y se optimizan todos los utilities críticos dentro de una planta, edificio o proceso.
 
 La idea central es:
 
 ```txt
-VersaEnergy = Mapa energético vivo + Medición + Balance + Desempeño + Acciones + ISO 50001
+VersaEnergy = Mapa vivo de energía y utilities + Medición + Balance + Desempeño + Acciones + ISO 50001
 ```
+
+## Alcance de utilities
+
+VersaEnergy debe poder gestionar, como mínimo:
+
+- electricidad,
+- gas natural,
+- GLP,
+- diésel u otros combustibles,
+- vapor,
+- condensado,
+- aire comprimido,
+- agua helada,
+- agua caliente,
+- agua industrial,
+- agua potable,
+- agua de proceso,
+- refrigeración,
+- gases industriales,
+- generación solar,
+- generación propia,
+- baterías o almacenamiento.
+
+El sistema debe tratar cada utility con sus propias unidades, variables, medidores, balances y reglas de cálculo.
 
 ## Diferenciador principal
 
-El diferenciador de VersaEnergy será el **Mapa Energético**: un canvas gráfico donde el usuario pueda dibujar diagramas unifilares y relaciones lógicas entre fuentes, tableros, áreas, equipos, medidores y variables.
+El diferenciador de VersaEnergy será el **Mapa Energético y de Utilities**: un canvas gráfico donde el usuario pueda dibujar y conectar redes de energía y servicios industriales.
+
+Este mapa debe soportar:
+
+- diagramas unifilares eléctricos,
+- redes de vapor,
+- redes de aire comprimido,
+- circuitos de agua helada,
+- circuitos de agua caliente,
+- distribución de gas,
+- distribución de combustibles,
+- redes de agua industrial,
+- relaciones lógicas entre áreas, equipos, medidores y variables.
 
 Este mapa no debe ser un dibujo decorativo. Cada nodo y conexión debe tener significado operativo.
 
-Ejemplo:
+Ejemplo eléctrico:
 
 ```txt
 Red eléctrica -> Transformador -> Tablero principal -> Medidor -> Área Producción -> Equipo
 ```
 
-El sistema debe entender esa relación para calcular consumos, balances, pérdidas, áreas sin medición, desviaciones y oportunidades de ahorro.
+Ejemplo aire comprimido:
+
+```txt
+Compresor -> Secador -> Tanque -> Header principal -> Línea de producción -> Equipo consumidor
+```
+
+Ejemplo vapor:
+
+```txt
+Caldera -> Header de vapor -> Medidor de vapor -> Intercambiador -> Proceso térmico -> Retorno de condensado
+```
+
+Ejemplo agua helada:
+
+```txt
+Chiller -> Bomba primaria -> Header de agua helada -> AHU -> Área climatizada
+```
+
+El sistema debe entender esas relaciones para calcular consumos, balances, pérdidas, fugas, retornos, áreas sin medición, desviaciones y oportunidades de ahorro.
 
 ## Filosofía de producto
 
-### 1. Energía como flujo
+### 1. Utilities como flujo
 
-La energía debe representarse como un flujo dentro de la operación, no solo como registros en una tabla.
+La energía y los utilities deben representarse como flujos dentro de la operación, no solo como registros en una tabla.
 
 La app debe ayudar a responder:
 
 - ¿Qué alimenta este equipo?
-- ¿Qué medidor mide esta área?
+- ¿Qué utility consume esta área?
+- ¿Qué medidor mide esta red o proceso?
 - ¿Qué consumo queda sin explicar?
-- ¿Qué cargas dependen de este tablero?
+- ¿Qué cargas dependen de este tablero, header o línea principal?
+- ¿Dónde hay fugas, pérdidas o retornos deficientes?
 - ¿Dónde hay datos faltantes?
 - ¿Qué desviación puede convertirse en acción?
 
 ### 2. Operación antes que documentación
 
-ISO 50001 debe sentirse como una consecuencia de operar bien la energía. La evidencia debe nacer de diagramas, mediciones, balances, acciones, objetivos y revisiones.
+ISO 50001 debe sentirse como una consecuencia de operar bien la energía y los utilities. La evidencia debe nacer de diagramas, mediciones, balances, acciones, objetivos y revisiones.
 
 ### 3. Mismo ADN que VersaMaint
 
@@ -76,9 +132,11 @@ La app no debe copiar el texto del estándar. Debe traducirlo a funciones práct
 - revisión por dirección,
 - mejora continua.
 
+Aunque el sistema cubra múltiples utilities, su estructura debe servir para demostrar gestión del desempeño energético, eficiencia, uso y consumo de energía en el sentido amplio del sistema de gestión.
+
 ## Estilo visual
 
-VersaEnergy debe compartir el lenguaje visual de VersaMaint, pero con identidad energética.
+VersaEnergy debe compartir el lenguaje visual de VersaMaint, pero con identidad propia de Energy & Utilities.
 
 Stack visual sugerido:
 
@@ -98,43 +156,54 @@ Lucide
 
 Paleta conceptual:
 
-- Azul: marca Versa.
-- Teal/verde: eficiencia energética.
-- Naranja: advertencia, combustibles o desviaciones moderadas.
-- Rojo: pérdidas, alarmas o desviaciones críticas.
+- Azul: marca Versa y electricidad.
+- Teal/verde: eficiencia energética y sostenibilidad.
+- Naranja: gas, combustibles o desviaciones moderadas.
+- Morado: vapor o procesos térmicos.
+- Cyan: agua helada, agua industrial o refrigeración.
 - Gris: datos faltantes, estimados o inactivos.
+- Rojo: pérdidas, fugas, alarmas o desviaciones críticas.
 
 ## Módulos principales
 
-### 1. Inicio / Energy Cockpit
+### 1. Inicio / Utilities Cockpit
 
-Dashboard principal con consumo, costo, demanda, emisiones, ahorro, calidad de datos, alertas y avance contra objetivos.
+Dashboard principal con consumo, costo, demanda, emisiones, ahorro, calidad de datos, alertas y avance contra objetivos por utility, sitio, área y equipo.
 
-### 2. Mapa Energético
+### 2. Mapa Energético y de Utilities
 
-Canvas para dibujar diagramas unifilares, conectar fuentes, tableros, áreas, equipos y medidores.
+Canvas para dibujar diagramas unifilares, redes de vapor, aire comprimido, agua helada, gas, combustibles y otras utilities, conectando fuentes, distribución, medidores, áreas, procesos y equipos.
 
 Este módulo será el corazón del producto.
 
-### 3. Modelo Energético
+### 3. Modelo Energy & Utilities
 
-Catálogos de sitios, áreas, equipos, fuentes energéticas, medidores, canales, variables, tarifas y factores de emisión.
+Catálogos de sitios, áreas, procesos, equipos, fuentes, utilities, medidores, canales, variables, tarifas, factores de conversión y factores de emisión.
 
 ### 4. Medición
 
-Gestión de medidores, canales, lecturas manuales, importaciones CSV, calidad de datos y trazabilidad.
+Gestión de medidores, canales, lecturas manuales, importaciones CSV, calidad de datos y trazabilidad para todas las utilities.
 
 ### 5. Balances
 
-Cálculo de consumo medido, consumo estimado, consumo calculado, pérdidas y consumo no explicado.
+Cálculo de consumo medido, consumo estimado, consumo calculado, pérdidas, fugas, retornos y consumo no explicado por utility.
 
 ### 6. Desempeño Energético
 
 Gestión de EnPI, líneas base, metas, desviaciones y comparación contra objetivos.
 
+Ejemplos:
+
+- kWh por tonelada,
+- Nm3 de aire comprimido por unidad,
+- kg de vapor por tonelada,
+- m3 de agua por lote,
+- TR-h por área,
+- GJ por unidad producida.
+
 ### 7. Acciones de Ahorro
 
-Conversión de hallazgos energéticos en acciones con responsable, ahorro esperado, ahorro real, evidencia y estado.
+Conversión de hallazgos energéticos y de utilities en acciones con responsable, ahorro esperado, ahorro real, evidencia y estado.
 
 ### 8. ISO 50001
 
@@ -142,27 +211,28 @@ Workspace para alcance, política, revisión energética, SEUs, objetivos, evide
 
 ### 9. Reportes
 
-Reportes PDF/CSV de consumo, balances, desempeño, acciones e ISO 50001.
+Reportes PDF/CSV de consumo, balances, desempeño, acciones e ISO 50001, filtrables por utility.
 
 ### 10. Integración VersaMaint
 
-Integración futura para vincular hallazgos energéticos con activos, solicitudes y órdenes de trabajo en VersaMaint.
+Integración futura para vincular hallazgos energéticos y de utilities con activos, solicitudes y órdenes de trabajo en VersaMaint.
 
 ## Criterios de éxito de esta visión
 
 VersaEnergy será valioso si permite a un usuario:
 
 1. Crear una planta.
-2. Dibujar su mapa energético.
-3. Asociar medidores.
-4. Importar lecturas.
-5. Ver consumo y desviaciones sobre el mapa.
-6. Detectar consumo no explicado.
-7. Crear una acción de ahorro.
-8. Medir desempeño con EnPI.
-9. Generar evidencia para ISO 50001.
-10. Conectar hallazgos con mantenimiento.
+2. Modelar sus utilities críticos.
+3. Dibujar mapas eléctricos, térmicos, hidráulicos y neumáticos simplificados.
+4. Asociar medidores.
+5. Importar lecturas.
+6. Ver consumos, pérdidas y desviaciones sobre el mapa.
+7. Detectar consumo no explicado, fugas o pérdidas.
+8. Crear una acción de ahorro.
+9. Medir desempeño con EnPI.
+10. Generar evidencia para ISO 50001.
+11. Conectar hallazgos con mantenimiento.
 
 ## Frase guía
 
-**VersaEnergy no solo reporta energía; entiende cómo fluye, cómo se mide y cómo se mejora.**
+**VersaEnergy no solo reporta electricidad; entiende cómo fluyen, se miden y se optimizan todos los utilities críticos de la operación.**
