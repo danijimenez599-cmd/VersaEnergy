@@ -4,6 +4,8 @@
 
 Este documento define el orden recomendado para construir VersaEnergy usando AI de desarrollo.
 
+VersaEnergy debe construirse como una app de **Energy & Utilities Management**, no como una app enfocada únicamente en electricidad. Todas las fases deben considerar desde el inicio que el sistema manejará electricidad, gas, vapor, aire comprimido, agua helada, agua caliente, agua industrial, combustibles, refrigeración y otros utilities críticos.
+
 La regla principal es trabajar por fases pequeñas, verificables y con entregables claros. No se debe pedir a la AI que construya toda la app de una vez.
 
 Cada fase debe tener:
@@ -31,10 +33,13 @@ Una fase = un entregable funcional o documental verificable.
 4. Cada fase debe compilar con `npm run build`.
 5. Cada fase debe dejar el repo en estado usable.
 6. No integrar VersaMaint hasta que VersaEnergy tenga modelo propio.
-7. El Mapa Energético debe construirse antes que el módulo ISO completo.
+7. El Mapa de Energy & Utilities debe construirse antes que el módulo ISO completo.
 8. La AI debe recibir instrucciones concretas, no ambiguas.
 9. Cada prompt debe indicar qué archivos tocar y qué no tocar.
 10. Si una fase crece demasiado, dividirla.
+11. Ningún módulo debe asumir que todo es electricidad.
+12. Toda entidad de medición debe tener `utilityType` y unidad compatible.
+13. Toda conversión entre utilities debe ser explícita y trazable.
 
 ---
 
@@ -43,18 +48,18 @@ Una fase = un entregable funcional o documental verificable.
 ```txt
 0. Base del repo
 1. App Shell y diseño visual
-2. Modelo energético mock
+2. Modelo Energy & Utilities mock
 3. Supabase y multi-tenant
-4. Mapa Energético MVP
-5. Motor de topología y versionado
-6. Medición e importación
-7. Balances y overlays
+4. Mapa Energy & Utilities MVP
+5. Motor de topología multi-utility y versionado
+6. Medición e importación multi-utility
+7. Balances y overlays por utility
 8. EnPI, baseline y objetivos
 9. Acciones de ahorro
 10. Workspace ISO 50001
 11. Reportes
 12. Integración VersaMaint
-13. Inteligencia energética
+13. Inteligencia energética y de utilities
 14. QA, demo y beta
 ```
 
@@ -109,6 +114,7 @@ Repo inicial compilable con estructura modular.
 
 ```txt
 Crea la base inicial de VersaEnergy con Vite, React, TypeScript y Tailwind.
+VersaEnergy será una app de Energy & Utilities Management, no solo electricidad.
 Debe incluir estructura modular src/app, src/shared, src/modules, src/store, src/services, supabase/migrations y docs.
 Instala Supabase, Zustand, Recharts, Framer Motion, Lucide, @xyflow/react y @react-pdf/renderer.
 Crea README, .env.example y una pantalla inicial simple.
@@ -128,7 +134,7 @@ Crear la carcasa visual de la app, con navegación modular y estilo hermano de V
 
 1. Crear `AppShell`.
 2. Crear sidebar colapsable.
-3. Crear header con sitio y periodo activo.
+3. Crear header con sitio, periodo activo y filtro de utility.
 4. Crear `moduleRegistry`.
 5. Crear componentes base:
    - `Button`,
@@ -140,8 +146,8 @@ Crear la carcasa visual de la app, con navegación modular y estilo hermano de V
    - `EmptyState`.
 6. Crear módulos placeholder:
    - Inicio,
-   - Mapa Energético,
-   - Modelo Energético,
+   - Mapa Energy & Utilities,
+   - Modelo Energy & Utilities,
    - Medición,
    - Balances,
    - Desempeño,
@@ -159,6 +165,7 @@ App navegable con estilo visual base.
 
 - El sidebar funciona.
 - Se puede cambiar de módulo.
+- Existe filtro visual por utility.
 - Existen módulos placeholder.
 - El diseño usa Tailwind y tokens visuales.
 - `npm run build` funciona.
@@ -167,62 +174,79 @@ App navegable con estilo visual base.
 
 ```txt
 Implementa el App Shell de VersaEnergy.
-Necesito sidebar colapsable, header con sitio y periodo activo, moduleRegistry y módulos placeholder.
+Necesito sidebar colapsable, header con sitio, periodo activo y filtro de utility, moduleRegistry y módulos placeholder.
 Crea componentes base Button, Badge, Card, MetricCard, Modal, PageHeader y EmptyState.
 Usa estilo visual limpio tipo VersaMaint: azul/teal, cards blancas, bordes suaves, tipografía moderna y microinteracciones discretas.
+La app debe hablar de Energy & Utilities, no solo electricidad.
 No implementes Supabase todavía.
 Debe compilar con npm run build.
 ```
 
 ---
 
-## Fase 2 — Modelo energético mock
+## Fase 2 — Modelo Energy & Utilities mock
 
 ### Objetivo
 
-Definir las entidades principales de energía y operarlas con datos mock/locales.
+Definir las entidades principales de energía y utilities, operándolas con datos mock/locales.
 
 ### Tareas
 
 1. Crear tipos TypeScript:
+   - `UtilityType`,
+   - `UtilityUnit`,
    - `EnergySite`,
    - `EnergyArea`,
+   - `UtilitySystem`,
    - `EnergyEquipment`,
    - `EnergySource`,
    - `EnergyMeter`,
    - `EnergyMeterChannel`,
    - `EnergyVariable`.
 2. Crear `energyModelSlice`.
-3. Crear vistas CRUD mock para:
+3. Crear catálogo de utilities inicial:
+   - electricidad,
+   - gas,
+   - vapor,
+   - condensado,
+   - aire comprimido,
+   - agua helada,
+   - agua caliente,
+   - agua industrial,
+   - combustible,
+   - refrigeración.
+4. Crear vistas CRUD mock para:
    - áreas,
+   - sistemas de utility,
    - equipos,
    - fuentes,
    - medidores,
    - canales.
-4. Crear filtros por sitio y área.
-5. Permitir vincular equipo con área.
-6. Permitir vincular medidor con equipo, área o fuente.
+5. Crear filtros por sitio, área y utility.
+6. Permitir vincular equipo con área.
+7. Permitir vincular medidor con equipo, área, fuente, sistema de utility o conexión futura.
 
 ### Entregable
 
-Modelo energético funcional en frontend con datos mock.
+Modelo Energy & Utilities funcional en frontend con datos mock.
 
 ### Criterios de aceptación
 
-- Se pueden crear áreas, equipos y medidores.
-- Cada equipo pertenece a un sitio/área.
-- Cada medidor tiene canal y unidad.
-- La UI permite filtrar por sitio o área.
+- Se pueden crear áreas, sistemas de utility, equipos y medidores.
+- Cada equipo pertenece a un sitio/área y puede tener utility principal.
+- Cada medidor tiene utility, canal y unidad compatible.
+- La UI permite filtrar por sitio, área o utility.
 - `npm run build` funciona.
 
 ### Prompt sugerido
 
 ```txt
-Implementa el modelo energético mock de VersaEnergy.
-Define tipos TypeScript para sitios, áreas, equipos, fuentes, medidores, canales y variables.
+Implementa el modelo Energy & Utilities mock de VersaEnergy.
+Define tipos TypeScript para UtilityType, UtilityUnit, sitios, áreas, sistemas de utility, equipos, fuentes, medidores, canales y variables.
+Incluye utilities iniciales: electricity, natural_gas, lpg, diesel, steam, condensate, compressed_air, chilled_water, hot_water, industrial_water, process_water y refrigeration.
 Crea un Zustand slice con datos mock y CRUD local.
-Crea una vista Modelo Energético con tabs o secciones para áreas, equipos, fuentes y medidores.
-Permite vincular equipos a áreas y medidores a equipos/áreas/fuentes.
+Crea una vista Modelo Energy & Utilities con secciones para áreas, sistemas, equipos, fuentes y medidores.
+Permite vincular equipos a áreas y medidores a equipos/áreas/fuentes/sistemas.
 No conectes Supabase aún.
 Debe compilar con npm run build.
 ```
@@ -233,7 +257,7 @@ Debe compilar con npm run build.
 
 ### Objetivo
 
-Persistir el modelo energético en Supabase con estructura multi-tenant y RLS inicial.
+Persistir el modelo Energy & Utilities en Supabase con estructura multi-tenant y RLS inicial.
 
 ### Tareas
 
@@ -243,133 +267,150 @@ Persistir el modelo energético en Supabase con estructura multi-tenant y RLS in
    - `profiles`,
    - `sites`,
    - `site_access`,
+   - `utility_types`,
+   - `utility_units`,
+   - `utility_systems`,
    - `energy_areas`,
    - `energy_equipment`,
    - `energy_sources`,
    - `energy_meters`,
    - `energy_meter_channels`.
-3. Agregar `company_id` y `site_id`.
+3. Agregar `company_id`, `site_id` y `utility_type` donde corresponda.
 4. Activar RLS.
 5. Crear políticas básicas por empresa.
 6. Crear repositorios API.
-7. Conectar UI del modelo energético a Supabase.
+7. Conectar UI del modelo a Supabase.
 8. Manejar loading, error y empty states.
 
 ### Entregable
 
-Modelo energético persistido en Supabase.
+Modelo Energy & Utilities persistido en Supabase.
 
 ### Criterios de aceptación
 
 - Se puede crear/listar/editar desde Supabase.
 - Las tablas tienen RLS.
 - Los datos están separados por empresa.
+- Los medidores tienen utility y unidad compatible.
 - La app maneja errores de conexión.
 - `npm run build` funciona.
 
 ### Prompt sugerido
 
 ```txt
-Conecta el modelo energético de VersaEnergy a Supabase.
-Crea migraciones para companies, profiles, sites, site_access, energy_areas, energy_equipment, energy_sources, energy_meters y energy_meter_channels.
-Agrega company_id y site_id donde corresponda.
+Conecta el modelo Energy & Utilities de VersaEnergy a Supabase.
+Crea migraciones para companies, profiles, sites, site_access, utility_types, utility_units, utility_systems, energy_areas, energy_equipment, energy_sources, energy_meters y energy_meter_channels.
+Agrega company_id, site_id y utility_type donde corresponda.
 Activa RLS y crea políticas básicas por empresa.
 Crea servicios/repositories para leer y escribir datos.
-Conecta la vista de Modelo Energético a Supabase con loading, error y empty states.
+Conecta la vista Modelo Energy & Utilities a Supabase con loading, error y empty states.
 Debe compilar con npm run build.
 ```
 
 ---
 
-## Fase 4 — Mapa Energético MVP
+## Fase 4 — Mapa Energy & Utilities MVP
 
 ### Objetivo
 
-Crear el primer canvas funcional con nodos, conexiones, paleta e inspector.
+Crear el primer canvas funcional con nodos, conexiones, paleta e inspector para múltiples utilities.
 
 ### Tareas
 
 1. Implementar `@xyflow/react`.
-2. Crear `EnergyTopologyCanvas`.
-3. Crear `NodePalette`.
+2. Crear `EnergyUtilitiesTopologyCanvas`.
+3. Crear `NodePalette` agrupada por utility.
 4. Crear nodos iniciales:
-   - fuente,
+   - fuente eléctrica,
    - transformador,
    - tablero,
    - medidor,
    - área,
    - equipo,
-   - medidor virtual.
+   - medidor virtual,
+   - compresor,
+   - header de aire,
+   - caldera,
+   - header de vapor,
+   - chiller,
+   - bomba,
+   - tubería/header genérico.
 5. Crear conexiones iniciales:
    - `feeds`,
+   - `flows_to`,
+   - `returns_to`,
    - `measures`,
    - `belongs_to`,
    - `derived_from`.
 6. Crear inspector lateral para nodos y conexiones.
 7. Permitir drag/drop.
 8. Permitir conectar nodos.
-9. Permitir guardar y cargar diagrama.
-10. Mostrar validaciones básicas.
+9. Permitir guardar y cargar mapa.
+10. Mostrar validaciones básicas de compatibilidad por utility.
 
 ### Entregable
 
-Canvas básico funcional.
+Canvas básico multi-utility funcional.
 
 ### Criterios de aceptación
 
 - Se pueden crear nodos desde paleta.
 - Se pueden conectar nodos.
+- Cada nodo/conexión tiene utility.
 - El inspector edita propiedades.
-- Se puede guardar/cargar el diagrama.
+- Se puede guardar/cargar el mapa.
 - Hay validaciones básicas visibles.
 - `npm run build` funciona.
 
 ### Prompt sugerido
 
 ```txt
-Implementa el Mapa Energético MVP usando @xyflow/react.
-Crea EnergyTopologyCanvas, NodePalette, nodos custom para fuente, transformador, tablero, medidor, área, equipo y medidor virtual.
-Crea edges para feeds, measures, belongs_to y derived_from.
+Implementa el Mapa Energy & Utilities MVP usando @xyflow/react.
+Crea EnergyUtilitiesTopologyCanvas, NodePalette, nodos custom para fuente eléctrica, transformador, tablero, medidor, área, equipo, medidor virtual, compresor, header de aire, caldera, header de vapor, chiller, bomba y tubería/header genérico.
+Crea edges para feeds, flows_to, returns_to, measures, belongs_to y derived_from.
+Cada nodo y edge debe tener utilityType.
 Agrega inspector lateral para editar propiedades del nodo o conexión seleccionada.
-Permite guardar/cargar el diagrama en estado local o Supabase si ya existe capa de datos.
-Agrega validaciones básicas visibles.
+Permite guardar/cargar el mapa en estado local o Supabase si ya existe capa de datos.
+Agrega validaciones básicas de compatibilidad por utility.
 Debe compilar con npm run build.
 ```
 
 ---
 
-## Fase 5 — Motor de topología y versionado
+## Fase 5 — Motor de topología multi-utility y versionado
 
 ### Objetivo
 
-Convertir el canvas en un grafo lógico, validable y versionado.
+Convertir el canvas en un grafo lógico, validable y versionado para múltiples utilities.
 
 ### Tareas
 
 1. Crear `graphTypes.ts`.
-2. Crear `validators.ts`.
-3. Crear `compiler.ts`.
-4. Crear `graphQueries.ts`.
-5. Crear `topologyVersioning.ts`.
-6. Crear tablas:
+2. Crear `utilityRules.ts`.
+3. Crear `unitConversion.ts`.
+4. Crear `validators.ts`.
+5. Crear `compiler.ts`.
+6. Crear `graphQueries.ts`.
+7. Crear `topologyVersioning.ts`.
+8. Crear tablas:
    - `energy_diagrams`,
    - `energy_diagram_versions`,
    - `energy_nodes`,
    - `energy_edges`,
    - `energy_topology_validation_issues`.
-7. Compilar canvas a grafo.
-8. Publicar versión.
-9. Congelar versiones publicadas.
-10. Clonar versión para editar.
+9. Compilar canvas a grafo multi-utility.
+10. Publicar versión.
+11. Congelar versiones publicadas.
+12. Clonar versión para editar.
 
 ### Entregable
 
-Topología versionada y calculable.
+Topología multi-utility versionada y calculable.
 
 ### Criterios de aceptación
 
 - El canvas se compila a grafo.
-- Se detectan conexiones inválidas.
+- Se detectan conexiones inválidas entre utilities incompatibles.
 - Una versión publicada no se edita.
 - Se puede clonar una versión.
 - `npm run build` funciona.
@@ -377,9 +418,9 @@ Topología versionada y calculable.
 ### Prompt sugerido
 
 ```txt
-Implementa el motor de topología de VersaEnergy separado de React.
-Crea graphTypes, validators, compiler, graphQueries y topologyVersioning.
-El compiler debe convertir nodes/edges/meters/channels en un energyGraph con measurementScopes, balanceTrees, validationIssues y calculationPlan.
+Implementa el motor de topología multi-utility de VersaEnergy separado de React.
+Crea graphTypes, utilityRules, unitConversion, validators, compiler, graphQueries y topologyVersioning.
+El compiler debe convertir nodes/edges/meters/channels/utilities en un utilityGraph con measurementScopes, balanceTrees, validationIssues, calculationPlan y utilityCompatibilityMap.
 Agrega tablas para diagrams, diagram_versions, nodes, edges y validation_issues.
 Permite publicar una versión, congelarla y clonar una versión publicada como draft.
 Debe compilar con npm run build.
@@ -387,11 +428,11 @@ Debe compilar con npm run build.
 
 ---
 
-## Fase 6 — Medición e importación
+## Fase 6 — Medición e importación multi-utility
 
 ### Objetivo
 
-Gestionar lecturas reales o importadas.
+Gestionar lecturas reales o importadas para electricidad y utilities.
 
 ### Tareas
 
@@ -403,20 +444,21 @@ Gestionar lecturas reales o importadas.
 2. Crear captura manual.
 3. Crear importador CSV.
 4. Mapear columnas a canales.
-5. Validar datos faltantes.
-6. Validar duplicados.
-7. Validar negativos o valores sospechosos.
-8. Mostrar calidad por medidor.
-9. Mostrar última lectura en inspector del canvas.
+5. Validar unidad contra utility.
+6. Validar datos faltantes.
+7. Validar duplicados.
+8. Validar negativos o valores sospechosos.
+9. Mostrar calidad por medidor.
+10. Mostrar última lectura en inspector del canvas.
 
 ### Entregable
 
-Medición funcional con CSV y calidad de datos básica.
+Medición multi-utility funcional con CSV y calidad de datos básica.
 
 ### Criterios de aceptación
 
 - Se importa CSV.
-- Se ven lecturas por medidor.
+- Se ven lecturas por medidor y utility.
 - Se detectan errores básicos.
 - Se muestra calidad de datos.
 - `npm run build` funciona.
@@ -424,22 +466,22 @@ Medición funcional con CSV y calidad de datos básica.
 ### Prompt sugerido
 
 ```txt
-Implementa el módulo de medición de VersaEnergy.
+Implementa el módulo de medición multi-utility de VersaEnergy.
 Crea tablas para readings_raw, readings_validated, import_batches y data_quality_issues.
 Agrega captura manual e importación CSV.
 Permite mapear columnas del CSV a canales de medidor.
-Valida faltantes, duplicados, negativos y valores sospechosos.
+Valida unidad contra utilityType, faltantes, duplicados, negativos y valores sospechosos.
 Muestra calidad de datos por medidor y última lectura en el inspector del mapa.
 Debe compilar con npm run build.
 ```
 
 ---
 
-## Fase 7 — Balances y overlays
+## Fase 7 — Balances y overlays por utility
 
 ### Objetivo
 
-Calcular balances energéticos desde topología + medición y mostrarlos sobre el mapa.
+Calcular balances de electricidad y utilities desde topología + medición, mostrándolos sobre el mapa.
 
 ### Tareas
 
@@ -448,18 +490,23 @@ Calcular balances energéticos desde topología + medición y mostrarlos sobre e
    - `energy_balance_rules`,
    - `energy_balance_runs`,
    - `energy_balance_results`.
-3. Calcular:
+3. Calcular por utility:
    - entrada total,
    - consumo medido,
    - consumo calculado,
    - consumo estimado,
    - pérdidas,
+   - fugas,
+   - retornos,
    - no explicado,
    - cobertura de medición.
 4. Crear vista de balances.
 5. Crear overlays sobre el canvas:
-   - kWh,
-   - kW,
+   - consumo,
+   - demanda,
+   - caudal,
+   - presión,
+   - temperatura,
    - costo,
    - calidad,
    - desviación.
@@ -467,23 +514,23 @@ Calcular balances energéticos desde topología + medición y mostrarlos sobre e
 
 ### Entregable
 
-Balance energético visual.
+Balance visual multi-utility.
 
 ### Criterios de aceptación
 
-- Se selecciona periodo.
+- Se selecciona periodo y utility.
 - Se calcula balance padre-hijos.
-- El mapa colorea nodos por consumo/desviación.
+- El mapa colorea nodos por consumo/desviación/fuga/pérdida.
 - Una desviación puede crear acción.
 - `npm run build` funciona.
 
 ### Prompt sugerido
 
 ```txt
-Implementa balances energéticos para VersaEnergy.
+Implementa balances multi-utility para VersaEnergy.
 Crea balanceEngine separado de React y tablas para balance_rules, balance_runs y balance_results.
-Calcula entrada total, consumo medido, calculado, estimado, pérdidas, no explicado y cobertura de medición.
-Crea vista de balances y overlays sobre el mapa para kWh, kW, costo, calidad y desviación.
+Calcula por utility: entrada total, consumo medido, calculado, estimado, pérdidas, fugas, retornos, no explicado y cobertura de medición.
+Crea vista de balances y overlays sobre el mapa para consumo, demanda, caudal, presión, temperatura, costo, calidad y desviación.
 Permite crear una acción desde una desviación.
 Debe compilar con npm run build.
 ```
@@ -494,7 +541,7 @@ Debe compilar con npm run build.
 
 ### Objetivo
 
-Medir desempeño energético.
+Medir desempeño energético y de utilities.
 
 ### Tareas
 
@@ -505,15 +552,22 @@ Medir desempeño energético.
    - `energy_targets`,
    - `energy_performance_results`.
 2. Crear builder de EnPI.
-3. Crear baseline por periodo fijo.
-4. Comparar real vs baseline.
-5. Crear metas de reducción.
-6. Mostrar tendencias con Recharts.
-7. Vincular EnPI a sitio, área, equipo o proceso.
+3. Soportar EnPI por utility:
+   - kWh/ton,
+   - Nm3 aire/unidad,
+   - kg vapor/ton,
+   - m3 agua/lote,
+   - TR-h/m2,
+   - GJ/unidad.
+4. Crear baseline por periodo fijo.
+5. Comparar real vs baseline.
+6. Crear metas de reducción.
+7. Mostrar tendencias con Recharts.
+8. Vincular EnPI a sitio, área, equipo, proceso o utility system.
 
 ### Entregable
 
-Módulo de desempeño energético.
+Módulo de desempeño energético y utilities.
 
 ### Criterios de aceptación
 
@@ -521,16 +575,18 @@ Módulo de desempeño energético.
 - Se define baseline.
 - Se ve real vs baseline.
 - Se ve avance contra objetivo.
+- Los EnPI soportan múltiples utilities.
 - `npm run build` funciona.
 
 ### Prompt sugerido
 
 ```txt
-Implementa el módulo de desempeño energético.
+Implementa el módulo de desempeño Energy & Utilities.
 Crea tablas para EnPI, baselines, baseline_versions, targets y performance_results.
-Crea un builder de EnPI con numerador, denominador, unidad, alcance y frecuencia.
+Crea un builder de EnPI con numerador, denominador, unidad, utilityType, alcance y frecuencia.
+Debe soportar ejemplos como kWh/ton, Nm3 aire/unidad, kg vapor/ton, m3 agua/lote, TR-h/m2 y GJ/unidad.
 Implementa baseline por periodo fijo y comparación real vs baseline.
-Muestra tendencias con Recharts y permite vincular EnPI a sitio, área, equipo o proceso.
+Muestra tendencias con Recharts y permite vincular EnPI a sitio, área, equipo, proceso o sistema de utility.
 Debe compilar con npm run build.
 ```
 
@@ -540,7 +596,7 @@ Debe compilar con npm run build.
 
 ### Objetivo
 
-Convertir hallazgos energéticos en trabajo gestionable.
+Convertir hallazgos energéticos y de utilities en trabajo gestionable.
 
 ### Tareas
 
@@ -560,13 +616,13 @@ Convertir hallazgos energéticos en trabajo gestionable.
 3. Crear vista Kanban.
 4. Crear vista tabla.
 5. Crear formulario de acción.
-6. Vincular acción a medidor, área, equipo, balance, EnPI e ISO.
+6. Vincular acción a medidor, área, equipo, balance, EnPI, utility e ISO.
 7. Capturar ahorro esperado, inversión, retorno y ahorro real.
 8. Adjuntar evidencia.
 
 ### Entregable
 
-Sistema de acciones energéticas.
+Sistema de acciones de ahorro para energía y utilities.
 
 ### Criterios de aceptación
 
@@ -575,6 +631,7 @@ Sistema de acciones energéticas.
 - Se cambia estado.
 - Se adjunta evidencia.
 - Se compara ahorro esperado vs real.
+- La acción identifica utility afectada.
 - `npm run build` funciona.
 
 ### Prompt sugerido
@@ -584,7 +641,7 @@ Implementa el módulo de acciones de ahorro de VersaEnergy.
 Crea tablas para action_plans, savings_projects, action_evidence y action_comments.
 Crea estados idea, analysis, approved, in_progress, verified, closed y cancelled.
 Agrega vista Kanban, vista tabla y formulario de acción.
-Permite vincular acciones a medidor, área, equipo, balance, EnPI e ISO.
+Permite vincular acciones a medidor, área, equipo, balance, EnPI, utility e ISO.
 Captura ahorro esperado, inversión, retorno y ahorro real.
 Debe compilar con npm run build.
 ```
@@ -595,7 +652,7 @@ Debe compilar con npm run build.
 
 ### Objetivo
 
-Crear el sistema de gestión energética dentro de la app.
+Crear el sistema de gestión energética dentro de la app, apoyado por datos de energía y utilities.
 
 ### Tareas
 
@@ -612,7 +669,7 @@ Crear el sistema de gestión energética dentro de la app.
    - revisión gerencial,
    - no conformidades.
 2. Crear tablas correspondientes.
-3. Relacionar evidencias con datos, diagramas, EnPI y acciones.
+3. Relacionar evidencias con datos, mapas, utilities, EnPI y acciones.
 4. Incluir campos de acción climática.
 5. Crear tablero de cobertura ISO.
 
@@ -623,7 +680,7 @@ Workspace ISO 50001 operativo.
 ### Criterios de aceptación
 
 - Se define alcance.
-- Se registran SEUs.
+- Se registran SEUs por utility, área, equipo o proceso.
 - Se crean objetivos.
 - Se adjuntan evidencias.
 - Se registra auditoría o revisión.
@@ -635,7 +692,7 @@ Workspace ISO 50001 operativo.
 Implementa el Workspace ISO 50001 de VersaEnergy.
 No copies texto del estándar; traduce ISO a flujos prácticos.
 Crea secciones para alcance, política, revisión energética, SEUs, riesgos, objetivos, planes, evidencias, auditorías, revisión gerencial y no conformidades.
-Relaciona evidencias con diagramas, datos, EnPI y acciones.
+Relaciona evidencias con mapas, utilities, datos, EnPI y acciones.
 Incluye campos para riesgos y oportunidades de acción climática.
 Debe compilar con npm run build.
 ```
@@ -652,7 +709,7 @@ Generar salidas profesionales para gestión y auditoría.
 
 1. Crear servicio de reportes.
 2. Crear PDF mensual.
-3. Crear PDF de balance.
+3. Crear PDF de balance por utility.
 4. Crear PDF de EnPI.
 5. Crear PDF ISO.
 6. Exportar CSV de lecturas.
@@ -665,7 +722,7 @@ Reportes PDF/CSV.
 
 ### Criterios de aceptación
 
-- Se genera PDF con periodo, alcance, fuente y usuario.
+- Se genera PDF con periodo, alcance, utility, fuente y usuario.
 - Se exporta CSV.
 - Los datos estimados se identifican.
 - `npm run build` funciona.
@@ -674,9 +731,9 @@ Reportes PDF/CSV.
 
 ```txt
 Implementa reportes para VersaEnergy.
-Crea servicio de reportes y plantillas PDF para reporte mensual, balance, EnPI e ISO.
+Crea servicio de reportes y plantillas PDF para reporte mensual, balance por utility, EnPI e ISO.
 Agrega exportación CSV para lecturas y balances.
-Cada reporte debe mostrar periodo, alcance, fuente de datos, usuario y marcar datos estimados.
+Cada reporte debe mostrar periodo, alcance, utility, fuente de datos, usuario y marcar datos estimados.
 Debe compilar con npm run build.
 ```
 
@@ -686,7 +743,7 @@ Debe compilar con npm run build.
 
 ### Objetivo
 
-Conectar energía con mantenimiento sin acoplar productos.
+Conectar energía y utilities con mantenimiento sin acoplar productos.
 
 ### Tareas
 
@@ -695,7 +752,7 @@ Conectar energía con mantenimiento sin acoplar productos.
    - `energy_external_systems`,
    - `energy_webhook_events`.
 2. Crear configuración de sistema externo.
-3. Mapear equipo energético con activo CMMS.
+3. Mapear equipo energético o utility asset con activo CMMS.
 4. Mapear acción con solicitud u OT externa.
 5. Registrar eventos de integración.
 6. Mostrar historial de vínculos.
@@ -706,7 +763,7 @@ Capa inicial de integración con VersaMaint.
 
 ### Criterios de aceptación
 
-- Un equipo energético puede vincularse a un activo externo.
+- Un equipo o componente de utility puede vincularse a un activo externo.
 - Una acción puede guardar referencia a solicitud u OT externa.
 - La app funciona aunque la integración no esté configurada.
 - `npm run build` funciona.
@@ -717,18 +774,18 @@ Capa inicial de integración con VersaMaint.
 Implementa una capa inicial de integración VersaMaint para VersaEnergy.
 No acoples directamente las bases. Usa IDs externos.
 Crea tablas para cmms_links, external_systems y webhook_events.
-Permite vincular equipo energético con activo externo y acción energética con solicitud u OT externa.
+Permite vincular equipo energético o componente de utility con activo externo y acción energética con solicitud u OT externa.
 La app debe funcionar aunque la integración no esté configurada.
 Debe compilar con npm run build.
 ```
 
 ---
 
-## Fase 13 — Inteligencia energética
+## Fase 13 — Inteligencia energética y de utilities
 
 ### Objetivo
 
-Agregar insights y asistente energético explicable.
+Agregar insights y asistente explicable para energía y utilities.
 
 ### Tareas
 
@@ -738,6 +795,10 @@ Agregar insights y asistente energético explicable.
    - factor de potencia bajo,
    - datos faltantes,
    - pérdida no explicada,
+   - fuga de aire comprimido,
+   - pérdida de vapor,
+   - retorno deficiente de condensado,
+   - bajo delta T en agua helada,
    - desviación contra baseline.
 2. Crear panel de insights.
 3. Explicar cada insight con datos fuente.
@@ -746,7 +807,7 @@ Agregar insights y asistente energético explicable.
 
 ### Entregable
 
-Insights energéticos accionables.
+Insights accionables para energía y utilities.
 
 ### Criterios de aceptación
 
@@ -759,8 +820,8 @@ Insights energéticos accionables.
 ### Prompt sugerido
 
 ```txt
-Implementa inteligencia energética inicial para VersaEnergy.
-Crea reglas determinísticas para consumo fuera de horario, demanda anormal, factor de potencia bajo, datos faltantes, pérdida no explicada y desviación contra baseline.
+Implementa inteligencia energética y de utilities inicial para VersaEnergy.
+Crea reglas determinísticas para consumo fuera de horario, demanda anormal, factor de potencia bajo, datos faltantes, pérdida no explicada, fuga de aire comprimido, pérdida de vapor, retorno deficiente de condensado, bajo delta T en agua helada y desviación contra baseline.
 Crea panel de insights con explicación y datos fuente.
 Permite convertir un insight en acción.
 Si agregas asistente, debe responder solo con datos disponibles y no inventar.
@@ -777,11 +838,11 @@ Preparar una beta demostrable de punta a punta.
 
 ### Tareas
 
-1. Crear dataset demo completo.
+1. Crear dataset demo completo con varias utilities.
 2. Probar flujo:
 
 ```txt
-sitio -> mapa -> medidor -> lectura -> balance -> EnPI -> acción -> evidencia -> reporte
+sitio -> utility -> mapa -> medidor -> lectura -> balance -> EnPI -> acción -> evidencia -> reporte
 ```
 
 3. Revisar responsive.
@@ -799,6 +860,7 @@ Beta estable con demo end-to-end.
 ### Criterios de aceptación
 
 - La demo se ejecuta completa.
+- La demo incluye electricidad, aire comprimido, vapor o agua helada.
 - No hay errores críticos.
 - Los motores tienen pruebas básicas.
 - Existe guía de demo.
@@ -808,7 +870,8 @@ Beta estable con demo end-to-end.
 
 ```txt
 Prepara VersaEnergy para una beta demo.
-Crea dataset demo completo y prueba el flujo sitio -> mapa -> medidor -> lectura -> balance -> EnPI -> acción -> evidencia -> reporte.
+Crea dataset demo completo con electricidad, aire comprimido, vapor y agua helada.
+Prueba el flujo sitio -> utility -> mapa -> medidor -> lectura -> balance -> EnPI -> acción -> evidencia -> reporte.
 Revisa responsive, estados vacíos, errores y RLS.
 Agrega pruebas básicas para topology-engine y balanceEngine.
 Crea una guía de demo.
@@ -825,10 +888,10 @@ Orden mínimo:
 
 ```txt
 1. App Shell
-2. Modelo energético
-3. Mapa Energético MVP
+2. Modelo Energy & Utilities
+3. Mapa Energy & Utilities MVP
 4. Medición CSV/manual
-5. Balance visual
+5. Balance visual por utility
 6. EnPI simple
 7. Acción de ahorro
 8. Reporte básico
@@ -838,17 +901,18 @@ Demo ideal del MVP:
 
 1. Crear una planta.
 2. Crear área y equipo.
-3. Crear medidor.
-4. Dibujar fuente -> transformador -> tablero -> medidor -> equipo.
-5. Importar lecturas.
-6. Ver consumo sobre el mapa.
-7. Detectar consumo no explicado.
-8. Crear acción de ahorro.
-9. Ver EnPI.
-10. Generar reporte.
+3. Crear utilities: electricidad, aire comprimido y vapor.
+4. Crear medidores.
+5. Dibujar fuente -> distribución -> medidor -> equipo/proceso.
+6. Importar lecturas.
+7. Ver consumo sobre el mapa.
+8. Detectar consumo no explicado, fuga o pérdida.
+9. Crear acción de ahorro.
+10. Ver EnPI.
+11. Generar reporte.
 
 Frase guía:
 
 ```txt
-VersaEnergy no solo reporta energía; entiende cómo fluye, cómo se mide y cómo se mejora.
+VersaEnergy no solo reporta electricidad; entiende cómo fluyen, se miden y se optimizan todos los utilities críticos de la operación.
 ```
