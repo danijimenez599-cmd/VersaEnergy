@@ -1,0 +1,9 @@
+# Windsurf Rules
+
+Read `AGENTS.md` first. It is the canonical operating contract for VersaEnergy.
+
+Use `docs/fase-NN.md` as the phase-specific source of truth. Convert natural
+language into a technical brief before editing. Use cheap workers for bounded
+exploration and verification, and reserve frontier reasoning for graph
+semantics, unit conversions, balances, schema/RLS/auth, topology versioning,
+ISO evidence and final review.

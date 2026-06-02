@@ -1,0 +1,13 @@
+---
+description: Canonical VersaEnergy AI operating contract
+alwaysApply: true
+---
+
+# VersaEnergy AI Contract
+
+Read `AGENTS.md` first. It is the canonical operating contract for this repo.
+
+Use the relevant `docs/fase-NN.md` as the phase contract. Convert natural
+language into a technical brief before editing. Load minimum context. Escalate
+graph semantics, unit conversions, balances, schema/RLS/auth, topology
+versioning, ISO evidence and ambiguous product behavior to frontier reasoning.

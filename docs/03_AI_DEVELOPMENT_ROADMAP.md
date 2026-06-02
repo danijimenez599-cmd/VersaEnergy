@@ -1,5 +1,25 @@
 # VersaEnergy — Parte 3: Roadmap de desarrollo con AI
 
+## Estado actual de este documento
+
+Este documento fue el roadmap inicial para construir VersaEnergy con AI. Sigue
+siendo util como contexto de producto y secuencia, pero ya no es la fuente
+canonica de estado.
+
+Fuente canonica actual:
+
+1. `../AGENTS.md` para reglas de agentes, estado de fases y guardrails.
+2. `fase-00.md` a `fase-11.md` para el contrato vigente de cada fase.
+3. `01_PRODUCT_VISION.md` y `02_TOPOLOGY_ENGINE.md` para vision y semantica.
+
+Importante: algunas secciones antiguas hablan de datos mock/locales y de separar
+Supabase en una fase posterior. Eso quedo superado por la ejecucion real: el
+proyecto actual es **Supabase-first, cero mocks**. No uses prompts antiguos de
+mock sin reconciliarlos con `AGENTS.md` y el `fase-NN.md` correspondiente.
+
+Siguiente checkpoint recomendado: **Fase 4 — Motor de Grafo + Validacion +
+Versionado + Serializacion**.
+
 ## 1. Propósito
 
 Este documento define el orden recomendado para construir VersaEnergy usando AI de desarrollo.
@@ -34,8 +54,8 @@ Una fase = un entregable funcional o documental verificable.
 5. Cada fase debe dejar el repo en estado usable.
 6. No integrar VersaMaint hasta que VersaEnergy tenga modelo propio.
 7. El Mapa de Energy & Utilities debe construirse antes que el módulo ISO completo.
-8. La AI debe recibir instrucciones concretas, no ambiguas.
-9. Cada prompt debe indicar qué archivos tocar y qué no tocar.
+8. La AI puede recibir requests en lenguaje natural, pero primero debe convertirlos a un brief técnico.
+9. Cada prompt debe indicar archivos si se conocen; si no, la AI debe inferirlos desde `AGENTS.md` y `fase-NN.md`.
 10. Si una fase crece demasiado, dividirla.
 11. Ningún módulo debe asumir que todo es electricidad.
 12. Toda entidad de medición debe tener `utilityType` y unidad compatible.

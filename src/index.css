@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-blue: #1e40af;
+  --color-brand-blue-light: #3b82f6;
+  --color-brand-teal: #0d9488;
+  --color-brand-teal-light: #14b8a6;
+  --color-brand-orange: #ea580c;
+  --color-brand-orange-light: #f97316;
+  --color-brand-purple: #7c3aed;
+  --color-brand-purple-light: #a855f7;
+  --color-brand-cyan: #0891b2;
+  --color-brand-cyan-light: #06b6d4;
+  --color-brand-red: #dc2626;
+  --color-brand-red-light: #ef4444;
+  --color-brand-gray: #6b7280;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f9fafb;
+  --color-surface-elevated: #ffffff;
+  --color-border: #e5e7eb;
+  --color-border-light: #f3f4f6;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius-card: 0.5rem;
+  --radius-modal: 0.75rem;
+  --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+  --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: var(--color-surface-muted);
+  color: #111827;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
