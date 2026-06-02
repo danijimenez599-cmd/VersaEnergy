@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   Network,
@@ -18,8 +18,14 @@ import {
 } from 'lucide-react'
 import { useAuth } from './AuthProvider'
 import { signOut } from '@/services/auth'
+import { supabase } from '@/services/supabase'
 import { useUIStore } from '@/store/uiStore'
 import { MODULES } from '@/modules'
+import {
+  OperationalStatusBadge,
+  formatEnergyPeriod,
+  utilityOptions,
+} from '@/shared/OperationalContext'
 
 const iconMap: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -37,14 +43,37 @@ const iconMap: Record<string, typeof LayoutDashboard> = {
 export function AppShell() {
   const { user, profile, loading } = useAuth()
   const navigate = useNavigate()
-  const { sidebarOpen, toggleSidebar, selectedUtilityType, setSelectedUtilityType } =
-    useUIStore()
+  const location = useLocation()
+  const {
+    sidebarOpen,
+    toggleSidebar,
+    availableSites,
+    selectedSiteId,
+    selectedUtilityType,
+    selectedPeriod,
+    setAvailableSites,
+    setSelectedSiteId,
+    setSelectedUtilityType,
+    setSelectedPeriod,
+  } = useUIStore()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [sitesLoading, setSitesLoading] = useState(true)
 
   async function handleLogout() {
     await signOut()
     navigate('/login')
   }
+
+  useEffect(() => {
+    async function loadSites() {
+      setSitesLoading(true)
+      const { data } = await supabase.from('sites').select('id, name').order('name')
+      setAvailableSites(data || [])
+      setSitesLoading(false)
+    }
+
+    loadSites()
+  }, [setAvailableSites])
 
   if (loading) {
     return (
@@ -57,18 +86,13 @@ export function AppShell() {
     )
   }
 
-  const utilityOptions = [
-    { value: '', label: 'Todos los utilities' },
-    { value: 'electricity', label: 'Electricidad' },
-    { value: 'natural_gas', label: 'Gas natural' },
-    { value: 'steam', label: 'Vapor' },
-    { value: 'compressed_air', label: 'Aire comprimido' },
-    { value: 'chilled_water', label: 'Agua helada' },
-    { value: 'hot_water', label: 'Agua caliente' },
-    { value: 'industrial_water', label: 'Agua industrial' },
-    { value: 'diesel', label: 'Diésel' },
-    { value: 'lpg', label: 'GLP' },
-  ]
+  const activeModule =
+    MODULES.find((module) =>
+      module.path === '/'
+        ? location.pathname === '/'
+        : location.pathname.startsWith(module.path),
+    ) ??
+    MODULES[0]
 
   return (
     <div className="flex h-screen bg-surface-muted overflow-hidden">
@@ -123,14 +147,40 @@ export function AppShell() {
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="h-14 flex items-center justify-between px-4 border-b border-border bg-surface shrink-0">
-          <div className="flex items-center gap-3">
+        <header className="min-h-14 flex items-center justify-between gap-3 px-4 py-2 border-b border-border bg-surface shrink-0">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <button
               onClick={toggleSidebar}
               className="lg:hidden p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 cursor-pointer"
             >
               <Menu size={18} />
             </button>
+
+            <div className="hidden min-w-[120px] flex-col sm:flex">
+              <span className="text-[10px] uppercase tracking-wide text-gray-400">
+                Contexto
+              </span>
+              <span className="truncate text-xs font-medium text-gray-700">
+                {activeModule?.label ?? 'Inicio'}
+              </span>
+            </div>
+
+            <select
+              value={selectedSiteId || ''}
+              onChange={(e) => setSelectedSiteId(e.target.value || null)}
+              className="max-w-[180px] px-3 py-1.5 text-xs border border-border rounded-lg bg-surface
+                         text-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 cursor-pointer"
+              disabled={sitesLoading}
+            >
+              {availableSites.length === 0 && (
+                <option value="">Sin sitios</option>
+              )}
+              {availableSites.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.name}
+                </option>
+              ))}
+            </select>
 
             {/* Utility filter */}
             <select
@@ -150,10 +200,22 @@ export function AppShell() {
               ))}
             </select>
 
-            {/* Site selector placeholder — will be implemented fully in Fase 2 */}
-            <span className="text-xs text-gray-400 hidden sm:inline">
-              Selecciona un sitio
-            </span>
+            <div className="hidden items-center gap-2 md:flex">
+              <input
+                type="month"
+                value={selectedPeriod}
+                onChange={(event) => setSelectedPeriod(event.target.value)}
+                className="px-3 py-1.5 text-xs border border-border rounded-lg bg-surface
+                           text-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 cursor-pointer"
+              />
+              <span className="max-w-[160px] truncate text-xs text-gray-400">
+                {formatEnergyPeriod(selectedPeriod)}
+              </span>
+            </div>
+
+            <div className="hidden lg:block">
+              <OperationalStatusBadge />
+            </div>
           </div>
 
           {/* User menu */}

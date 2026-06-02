@@ -98,9 +98,27 @@ function nodeFamily(nt: string): string {
   return r[nt] || 'equipment'
 }
 
+function bindingBadge(data: DiagramNodeData): { label: string; className: string } | null {
+  const properties = data.properties || {}
+  const assetBinding = properties.asset_binding as Record<string, unknown> | undefined
+  const measurementBinding = properties.measurement_binding as Record<string, unknown> | undefined
+  if (measurementBinding?.status === 'linked') {
+    return { label: 'MP vinculado', className: 'bg-purple-100 text-purple-700 border-purple-200' }
+  }
+  if (assetBinding?.status === 'linked') {
+    const entityType = String(assetBinding.entity_type || 'activo')
+    return { label: `${entityType} vinculado`, className: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+  }
+  if (assetBinding?.status === 'optional_unbound') {
+    return { label: 'opcional', className: 'bg-gray-50 text-gray-500 border-gray-200' }
+  }
+  return null
+}
+
 function EquipmentNode({ data }: NProps) {
   const fam = nodeFamily(data.nodeType as string)
   const Icon = iconMap[data.nodeType as string] || Wrench
+  const badge = bindingBadge(data)
   return (
     <div className={`rounded-xl border-2 shadow-sm min-w-[140px] ${familyBorderColors[fam]}`}>
       <div className={`flex items-center gap-1.5 px-2.5 py-1.5 ${familyHeaderColors[fam]} rounded-t-[10px] text-white text-[10px] font-medium`}>
@@ -113,6 +131,11 @@ function EquipmentNode({ data }: NProps) {
         {data.utility && (
           <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded-full bg-white/60 text-gray-600 border border-gray-200">
             {data.utility as string}
+          </span>
+        )}
+        {badge && (
+          <span className={`ml-1 inline-block mt-1 rounded-full border px-1.5 py-0.5 text-[9px] ${badge.className}`}>
+            {badge.label}
           </span>
         )}
       </div>
@@ -139,10 +162,12 @@ function ConnectorNode({ data }: NProps) {
 
 function MeasurementNode({ data }: NProps) {
   const Icon = iconMap[data.nodeType as string] || Gauge
+  const badge = bindingBadge(data)
   return (
     <div className="rounded-full border-2 border-purple-300 bg-purple-50 shadow-sm min-w-[60px] min-h-[60px] flex flex-col items-center justify-center p-2">
       <Icon size={16} className="text-purple-600" />
       <span className="text-[9px] font-mono text-purple-700 mt-0.5 truncate max-w-[56px]">{data.tag}</span>
+      {badge && <span className="mt-0.5 h-1.5 w-1.5 rounded-full bg-emerald-500" />}
       <Handle type="source" position={Position.Right} className="!w-2 !h-2 !bg-purple-400 !border-2 !border-white" />
       <Handle type="target" position={Position.Left} className="!w-2 !h-2 !bg-purple-400 !border-2 !border-white" />
     </div>
@@ -151,6 +176,7 @@ function MeasurementNode({ data }: NProps) {
 
 function OrganizationalNode({ data }: NProps) {
   const Icon = iconMap[data.nodeType as string] || Building2
+  const badge = bindingBadge(data)
   return (
     <div className="rounded-lg border-2 border-dashed border-gray-300 bg-gray-50/60 min-w-[160px]">
       <div className="flex items-center gap-2 px-3 py-2">
@@ -158,6 +184,7 @@ function OrganizationalNode({ data }: NProps) {
         <div>
           <p className="text-xs font-semibold text-gray-700">{data.label}</p>
           {data.tag && <p className="text-[10px] text-gray-400 font-mono">{data.tag}</p>}
+          {badge && <p className="text-[9px] text-emerald-700">{badge.label}</p>}
         </div>
       </div>
       <Handle type="source" position={Position.Right} className="!w-2.5 !h-2.5 !bg-gray-400 !border-2 !border-white" />

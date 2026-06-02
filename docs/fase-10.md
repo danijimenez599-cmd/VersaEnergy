@@ -1,5 +1,8 @@
 # Fase 10 — Reportes PDF/CSV + SVG/JSON Export
 
+> Nota documental: este plan queda como referencia inicial. Para implementacion
+> futura usa `05_MASTER_IMPROVEMENT_PLAN.md`, especialmente MP-11.
+
 ## Objetivo
 
 Generar salidas profesionales para gestión, auditoría y respaldo técnico. PDFs con `@react-pdf/renderer`, CSV exportables, y exportación del diagrama como SVG + JSON (snapshot del grafo).

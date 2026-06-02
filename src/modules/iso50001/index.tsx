@@ -2,10 +2,13 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/services/supabase'
 import { PageHeader } from '@/shared/PageHeader'
 import { Card } from '@/shared/Card'
+import { EmptyState } from '@/shared/EmptyState'
+import { OperationalContextBanner, OperationalContextSummary } from '@/shared/OperationalContext'
 import { SgenStatusBadge } from './components/SgenStatusBadge'
 import { LegalSettingsView } from './views/LegalSettingsView'
 import { ScopeView } from './views/ScopeView'
 import { LEGAL_NOTICE, ACCEPTED_LANGUAGE } from '@/services/sgen-engine'
+import { useUIStore } from '@/store/uiStore'
 import {
   Shield, Crosshair, Zap, Target, FolderKanban, FileSearch, Scale,
 } from 'lucide-react'
@@ -18,27 +21,24 @@ const tabs = [
 
 export default function Iso50001Page() {
   const [activeTab, setActiveTab] = useState('dashboard')
-  const [siteId, setSiteId] = useState<string | null>(null)
-  const [sites, setSites] = useState<{ id: string; name: string }[]>([])
   const [coverage, setCoverage] = useState({ scope: 0, seus: 0, objectives: 0, actions: 0, evidence: 0 })
   const [loading, setLoading] = useState(true)
+  const { selectedSiteId } = useUIStore()
 
   useEffect(() => {
-    supabase.from('sites').select('id, name').order('name').then(({ data }) => {
-      setSites(data || [])
-      if (data && data.length > 0) setSiteId(data[0].id)
-    })
-  }, [])
+    if (!selectedSiteId) {
+      setLoading(false)
+      setCoverage({ scope: 0, seus: 0, objectives: 0, actions: 0, evidence: 0 })
+      return
+    }
 
-  useEffect(() => {
-    if (!siteId) return
     async function load() {
       const [{ count: scopeCount }, { count: seusCount }, { count: objCount }, { count: impCount }, { count: evdCount }] = await Promise.all([
-        supabase.from('sgen_scopes').select('*', { count: 'exact', head: true }).eq('site_id', siteId).eq('status', 'approved'),
-        supabase.from('sgen_significant_uses').select('*', { count: 'exact', head: true }).eq('site_id', siteId),
-        supabase.from('sgen_objectives').select('*', { count: 'exact', head: true }).eq('site_id', siteId),
-        supabase.from('energy_improvements').select('*', { count: 'exact', head: true }).eq('site_id', siteId).neq('status', 'cancelled'),
-        supabase.from('sgen_evidence').select('*', { count: 'exact', head: true }).eq('site_id', siteId),
+        supabase.from('sgen_scopes').select('*', { count: 'exact', head: true }).eq('site_id', selectedSiteId).eq('status', 'approved'),
+        supabase.from('sgen_significant_uses').select('*', { count: 'exact', head: true }).eq('site_id', selectedSiteId),
+        supabase.from('sgen_objectives').select('*', { count: 'exact', head: true }).eq('site_id', selectedSiteId),
+        supabase.from('energy_improvements').select('*', { count: 'exact', head: true }).eq('site_id', selectedSiteId).neq('status', 'cancelled'),
+        supabase.from('sgen_evidence').select('*', { count: 'exact', head: true }).eq('site_id', selectedSiteId),
       ])
       setCoverage({
         scope: scopeCount || 0, seus: seusCount || 0,
@@ -47,19 +47,14 @@ export default function Iso50001Page() {
       setLoading(false)
     }
     load()
-  }, [siteId])
+  }, [selectedSiteId])
 
   return (
     <div>
       <PageHeader title="SGEn" description={ACCEPTED_LANGUAGE.certification + ' — ' + ACCEPTED_LANGUAGE.compliance} />
 
-      <div className="flex items-center gap-3 mb-4">
-        <label className="text-sm text-gray-600">Sitio:</label>
-        <select value={siteId || ''} onChange={(e) => setSiteId(e.target.value)}
-          className="px-3 py-1.5 text-sm border border-border rounded-lg bg-surface cursor-pointer">
-          {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-      </div>
+      <OperationalContextSummary />
+      <OperationalContextBanner />
 
       <div className="border-b border-border mb-4">
         <nav className="flex gap-1 -mb-px overflow-x-auto">
@@ -73,7 +68,15 @@ export default function Iso50001Page() {
         </nav>
       </div>
 
-      {loading ? <div className="py-12 text-center text-sm text-gray-400">Cargando...</div> : activeTab === 'dashboard' && (
+      {!selectedSiteId && activeTab !== 'legal' && (
+        <EmptyState
+          icon={<Shield size={48} strokeWidth={1.5} />}
+          title="Selecciona un sitio"
+          description="El workspace SGEn necesita un sitio para mantener alcance, usos significativos, objetivos y evidencia trazables."
+        />
+      )}
+
+      {selectedSiteId && loading ? <div className="py-12 text-center text-sm text-gray-400">Cargando...</div> : selectedSiteId && activeTab === 'dashboard' && (
         <div className="space-y-4">
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
             {LEGAL_NOTICE.body.slice(0, 200)}...
@@ -134,7 +137,7 @@ export default function Iso50001Page() {
         </div>
       )}
 
-      {activeTab === 'scope' && siteId && <ScopeView siteId={siteId} />}
+      {activeTab === 'scope' && selectedSiteId && <ScopeView siteId={selectedSiteId} />}
       {activeTab === 'legal' && <LegalSettingsView />}
     </div>
   )

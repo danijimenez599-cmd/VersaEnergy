@@ -1,4 +1,8 @@
-# VersaEnergy — Parte 3: Roadmap de desarrollo con AI
+# VersaEnergy — Roadmap historico de desarrollo con AI
+
+> No usar este documento como plan de implementacion futuro. Se conserva para
+> contexto historico y prompts antiguos. El plan vigente es
+> `05_MASTER_IMPROVEMENT_PLAN.md`.
 
 ## Estado actual de este documento
 
@@ -9,16 +13,20 @@ canonica de estado.
 Fuente canonica actual:
 
 1. `../AGENTS.md` para reglas de agentes, estado de fases y guardrails.
-2. `fase-00.md` a `fase-11.md` para el contrato vigente de cada fase.
-3. `01_PRODUCT_VISION.md` y `02_TOPOLOGY_ENGINE.md` para vision y semantica.
+2. `00_DOCUMENTATION_INDEX.md` para navegar la documentacion vigente.
+3. `05_MASTER_IMPROVEMENT_PLAN.md` para el plan futuro de implementacion.
+4. `04_CURRENT_STATE_REFERENCE.md` para entender lo ya construido y las brechas.
+5. `fase-00.md` a `fase-11.md` como referencia de construccion original.
+6. `01_PRODUCT_VISION.md` y `02_TOPOLOGY_ENGINE.md` para vision y semantica.
 
 Importante: algunas secciones antiguas hablan de datos mock/locales y de separar
 Supabase en una fase posterior. Eso quedo superado por la ejecucion real: el
 proyecto actual es **Supabase-first, cero mocks**. No uses prompts antiguos de
 mock sin reconciliarlos con `AGENTS.md` y el `fase-NN.md` correspondiente.
 
-Siguiente checkpoint recomendado: **Fase 4 — Motor de Grafo + Validacion +
-Versionado + Serializacion**.
+Siguiente checkpoint recomendado: seguir
+`05_MASTER_IMPROVEMENT_PLAN.md`. Este roadmap queda como archivo historico y no
+debe usarse para decidir la siguiente fase.
 
 ## 1. Propósito
 
@@ -75,7 +83,7 @@ Una fase = un entregable funcional o documental verificable.
 6. Medición e importación multi-utility
 7. Balances y overlays por utility
 8. EnPI, baseline y objetivos
-9. Acciones de ahorro
+9. Acciones y proyectos de mejora
 10. Workspace SGEn alineado con ISO 50001
 11. Reportes
 12. Integración VersaMaint

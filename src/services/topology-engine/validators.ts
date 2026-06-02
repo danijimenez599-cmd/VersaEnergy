@@ -1,11 +1,30 @@
 import type { ValidationRule, ValidationIssue, ValidationContext } from './graphTypes'
-import { areUtilitiesCompatible, isNodeTypeAllowed, isMeterTypeAllowed, isEdgeTypeAllowed } from './utilityRules'
+import { areUtilitiesCompatible, isMeterTypeAllowed, isEdgeTypeAllowed } from './utilityRules'
 
 const ACCUMULATOR_UNITS = ['kWh', 'MWh', 'GJ', 'm3', 'Nm3', 'kg', 'L', 'gal', 'BTU', 'TR-h', 'lb', 'ton', 'kWh_th', 'MJ', 'SCF']
+const EQUIPMENT_NODE_TYPES = new Set([
+  'boiler', 'pump', 'compressor', 'chiller', 'cooling_tower', 'tank',
+  'transformer', 'panel', 'generator', 'heat_exchanger', 'motor', 'consumer',
+  'custom_equipment',
+])
+const MEASUREMENT_NODE_TYPES = new Set([
+  'flow_meter', 'energy_meter', 'power_meter', 'pressure_sensor',
+  'temperature_sensor', 'level_sensor', 'current_transformer',
+  'gas_meter', 'water_meter', 'steam_meter', 'custom_meter',
+])
+const ORGANIZATIONAL_NODE_TYPES = new Set([
+  'area_node', 'process_node', 'production_line', 'area', 'process', 'site', 'cost_center',
+])
 
 let issueCounter = 0
 function issueId(): string {
   return `val-${++issueCounter}-${Date.now()}`
+}
+
+function linkedObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  return record.status === 'linked' ? record : null
 }
 
 export const validationRules: ValidationRule[] = [
@@ -286,7 +305,7 @@ export const validationRules: ValidationRule[] = [
               'temperature_sensor', 'level_sensor', 'gas_meter', 'water_meter',
               'steam_meter', 'current_transformer'].includes(n.type),
         )
-        .filter((n) => !isNodeTypeAllowed(n.utility, n.type))
+        .filter((n) => !isMeterTypeAllowed(n.utility, n.type))
         .map((n) => ({
           id: issueId(),
           ruleId: 'R11',
@@ -327,6 +346,53 @@ export const validationRules: ValidationRule[] = [
             targetId: mp.id,
             targetType: 'measurement',
           })
+        }
+      }
+      return issues
+    },
+  },
+
+  // R13: Equipos, areas y medidores del mapa deben venir del arbol de activos
+  {
+    id: 'R13',
+    severity: 'error',
+    appliesTo: 'node',
+    check(ctx: ValidationContext): ValidationIssue[] {
+      const issues: ValidationIssue[] = []
+      for (const node of ctx.nodes) {
+        const assetBinding = linkedObject(node.properties?.asset_binding)
+        if (EQUIPMENT_NODE_TYPES.has(node.type) && !assetBinding) {
+          issues.push({
+            id: issueId(),
+            ruleId: 'R13',
+            severity: 'error',
+            message: `Nodo ${node.tag} debe vincularse a un equipo existente del arbol de activos antes de publicar.`,
+            targetId: node.id,
+            targetType: 'node',
+          })
+        }
+        if (ORGANIZATIONAL_NODE_TYPES.has(node.type) && !assetBinding) {
+          issues.push({
+            id: issueId(),
+            ruleId: 'R13',
+            severity: 'error',
+            message: `Nodo organizacional ${node.tag} debe vincularse a un area/proceso existente del arbol de activos.`,
+            targetId: node.id,
+            targetType: 'node',
+          })
+        }
+        if (MEASUREMENT_NODE_TYPES.has(node.type)) {
+          const measurementBinding = linkedObject(node.properties?.measurement_binding)
+          if (!assetBinding || !measurementBinding?.measurement_point_id) {
+            issues.push({
+              id: issueId(),
+              ruleId: 'R13',
+              severity: 'error',
+              message: `Medidor ${node.tag} debe vincularse a un equipo medidor y a su MeasurementPoint.`,
+              targetId: node.id,
+              targetType: 'node',
+            })
+          }
         }
       }
       return issues

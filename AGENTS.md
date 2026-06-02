@@ -102,11 +102,14 @@ some are plans for future work.
 Canonical source of truth:
 
 1. `AGENTS.md` for operating rules, architecture, commands and phase status.
-2. `docs/fase-NN.md` for the current contract of each phase.
-3. `docs/01_PRODUCT_VISION.md` and `docs/02_TOPOLOGY_ENGINE.md` for product and
+2. `docs/00_DOCUMENTATION_INDEX.md` for documentation priority and navigation.
+3. `docs/05_MASTER_IMPROVEMENT_PLAN.md` for future implementation phases.
+4. `docs/04_CURRENT_STATE_REFERENCE.md` for what exists, what works and known
+   gaps.
+5. `docs/01_PRODUCT_VISION.md` and `docs/02_TOPOLOGY_ENGINE.md` for product and
    topology intent.
-4. `docs/03_AI_DEVELOPMENT_ROADMAP.md` is useful historical planning context,
-   but if it conflicts with `AGENTS.md` or `docs/fase-NN.md`, the phase docs win.
+6. `docs/fase-NN.md` files are build-phase references and historical contracts.
+7. `docs/03_AI_DEVELOPMENT_ROADMAP.md` is historical planning context only.
 
 Do not reintroduce old mock/local-data instructions from early planning docs.
 The current project rule is Supabase-first and zero mocks.
@@ -167,14 +170,19 @@ Before editing, follow this flow:
 
 1. Read this file.
 2. Convert the user's natural-language request into a brief technical task.
-3. Read the relevant `docs/fase-NN.md` document.
-4. Read `docs/01_PRODUCT_VISION.md` or `docs/02_TOPOLOGY_ENGINE.md` only when the
+3. Read `docs/00_DOCUMENTATION_INDEX.md`.
+4. For future product/UI/business work, read
+   `docs/04_CURRENT_STATE_REFERENCE.md` and
+   `docs/05_MASTER_IMPROVEMENT_PLAN.md`.
+5. Read the relevant `docs/fase-NN.md` document only when the change touches a
+   specific original build phase or historical implementation detail.
+6. Read `docs/01_PRODUCT_VISION.md` or `docs/02_TOPOLOGY_ENGINE.md` only when the
    change touches product direction, topology, graph semantics or utilities.
-5. Inspect only the source files needed for the task.
-6. If the change touches DB/RLS/schema, inspect the relevant migration files in
+7. Inspect only the source files needed for the task.
+8. If the change touches DB/RLS/schema, inspect the relevant migration files in
    `supabase/migrations/`.
-7. Verify with `npm run build` for code changes.
-8. Update docs when behavior, architecture, schema, phase status or guardrails
+9. Verify with `npm run build` for code changes.
+10. Update docs when behavior, architecture, schema, phase status or guardrails
    change.
 
 Do not scan the repo randomly to "understand everything". Build a task-specific
@@ -215,7 +223,10 @@ To control token cost, load only:
 - the user's request;
 - the technical brief;
 - this `AGENTS.md`;
-- the relevant `docs/fase-NN.md`;
+- `docs/00_DOCUMENTATION_INDEX.md`;
+- `docs/04_CURRENT_STATE_REFERENCE.md` and
+  `docs/05_MASTER_IMPROVEMENT_PLAN.md` for future work;
+- the relevant `docs/fase-NN.md` only when needed;
 - product/topology docs only when relevant;
 - necessary source files;
 - relevant migrations when DB/RLS/schema is touched;
@@ -404,9 +415,11 @@ interface AccumulatorConfig {
 
 Key rule: **A MeasurementPoint is NOT a visual node**. It is a data entity that can be bound to any node, edge, system, or area. The canvas MAY display a meter icon linked to the bound element, but the MeasurementPoint exists independently.
 
-## Development Phases
+## Build Phase Reference
 
-Work through phases sequentially. Read `docs/fase-NN.md` for detailed instructions before starting each phase.
+These phases document the original construction path. They are useful as
+reference for what was built, but future work should normally follow
+`docs/05_MASTER_IMPROVEMENT_PLAN.md`.
 
 | Phase | Name | Status | Doc |
 |-------|------|--------|-----|
@@ -423,19 +436,44 @@ Work through phases sequentially. Read `docs/fase-NN.md` for detailed instructio
 | 10 | Reportes PDF/CSV + SVG/JSON Export | ⬜ Pending | [fase-10.md](docs/fase-10.md) |
 | 11 | QA, Demo Dataset, Beta | ⬜ Pending | [fase-11.md](docs/fase-11.md) |
 
+## Future Improvement Plan
+
+Use [docs/05_MASTER_IMPROVEMENT_PLAN.md](docs/05_MASTER_IMPROVEMENT_PLAN.md)
+for future implementation. It splits the remaining product hardening into short
+MP phases focused on business logic, energy engineering and UI.
+
+## MP Phase Status (Master Improvement Plan)
+
+| Phase | Name | Status |
+|-------|------|--------|
+| MP-00 | Reorden documental y reglas de trabajo | ✅ Complete |
+| MP-01 | Contexto global y shell operacional | ✅ Complete |
+| MP-02 | Cockpit de Energy & Utilities | ✅ Complete |
+| MP-03 | Modelo guiado y MeasurementPoint binding | ✅ Complete |
+| MP-04 | Workspace técnico del mapa | ✅ Complete |
+| MP-05 | Pipeline de medición y calidad de datos | ✅ Complete |
+| MP-06 | Balance Run Wizard y overlays | ✅ Complete |
+| MP-07 | EnPI, baseline y objetivos operables | ✅ Complete |
+| MP-08 | Oportunidades, triage y M&V | ✅ Complete (base) |
+| MP-09 | Workspace de proyectos energéticos + Gantt | ✅ Complete (base) |
+| MP-10 | SGEn operativo alineado con ISO 50001 | ⬜ Pending |
+| MP-11 | Reportes y exportaciones | ⬜ Pending |
+| MP-12 | Administración y configuración energética | ⬜ Pending |
+| MP-13 | Demo dataset, QA y beta | ⬜ Pending |
+
 ## Lightweight Plan Improvements
 
 Keep these improvements small and practical:
 
-1. Treat Phase 4 as the next architectural checkpoint. It should split pure
-   topology-engine logic from React canvas code before balances and measurement
-   depend on it.
+1. Treat the current backend/domain base as a foundation, not something to
+   rewrite casually.
 2. Keep `README.md` as the human handoff and `AGENTS.md` as the AI handoff.
-3. When a phase becomes large, split delivery into "service logic first" and
-   "UI wiring second", but keep the same phase doc as the source of truth.
+3. When a master-plan phase becomes large, split delivery into "service logic
+   first" and "UI wiring second", but keep the same MP phase as the source of
+   truth.
 4. Avoid old mock-first prompts. This project is already Supabase-first.
-5. Add small phase status notes to `docs/fase-NN.md` instead of creating many
-   competing roadmap documents.
+5. Do not create competing roadmap documents; update the master plan or current
+   state reference.
 
 ## Visual Design Tokens
 
@@ -475,7 +513,9 @@ Edge identification MUST use multi-channel approach:
 8. Diagram versioning: draft → published (frozen) → clone to new draft → edit → publish.
 9. SGEn / ISO 50001 module translates energy management into practical workflows; it must not copy ISO text, tables, definitions, clauses or official checklists.
 10. The product must not imply ISO certification, ISO endorsement, or replacement of the official standard.
-11. No VersaMaint integration in MVP (deferred to post-MVP).
+11. VersaMaint compatibility starts with the shared asset-tree contract
+    (plant -> area -> system -> equipment). Live bidirectional sync remains a
+    post-MVP integration unless a shared asset registry/API is explicitly built.
 12. Frontend never talks directly to industrial protocols (MQTT, OPC UA, Modbus).
 13. Every equipment/node must have a unique tag.
 14. Edges must specify flow direction.

@@ -1,5 +1,8 @@
 # Fase 1 — App Shell + Auth + Multi-tenant
 
+> Nota documental: esta fase queda como referencia de construccion original.
+> Para trabajo futuro usa `05_MASTER_IMPROVEMENT_PLAN.md`.
+
 ## Estado
 
 ✅ **Completada** — 2026-06-01

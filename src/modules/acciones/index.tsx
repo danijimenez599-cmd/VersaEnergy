@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '@/services/supabase'
+import { useState } from 'react'
 import { PageHeader } from '@/shared/PageHeader'
 import { Button } from '@/shared/Button'
+import { EmptyState } from '@/shared/EmptyState'
+import { OperationalContextBanner, OperationalContextSummary } from '@/shared/OperationalContext'
+import { useUIStore } from '@/store/uiStore'
 import { Inbox, Columns, FolderKanban, Plus } from 'lucide-react'
 import { ImprovementInbox } from './views/ImprovementInbox'
 import { QuickActionKanban } from './views/QuickActionKanban'
@@ -18,19 +20,11 @@ const tabs = [
 
 export default function AccionesPage() {
   const [activeTab, setActiveTab] = useState('inbox')
-  const [siteId, setSiteId] = useState<string | null>(null)
-  const [sites, setSites] = useState<{ id: string; name: string }[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editingItem, setEditingItem] = useState<EnergyImprovement | null>(null)
   const [workspaceItem, setWorkspaceItem] = useState<EnergyImprovement | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
-
-  useEffect(() => {
-    supabase.from('sites').select('id, name').order('name').then(({ data }) => {
-      setSites(data || [])
-      if (data && data.length > 0) setSiteId(data[0].id)
-    })
-  }, [])
+  const { selectedSiteId } = useUIStore()
 
   function handleSelect(item: EnergyImprovement) {
     if (item.work_type === 'project') {
@@ -56,18 +50,13 @@ export default function AccionesPage() {
       <PageHeader title="Acciones y Proyectos de Mejora"
         description="Gestiona oportunidades de ahorro energético y proyectos de mejora"
         actions={
-          <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => { setEditingItem(null); setShowForm(true) }}>
+          <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => { setEditingItem(null); setShowForm(true) }} disabled={!selectedSiteId}>
             Nueva oportunidad
           </Button>
         } />
 
-      <div className="flex items-center gap-3 mb-4">
-        <label className="text-sm text-gray-600">Sitio:</label>
-        <select value={siteId || ''} onChange={(e) => setSiteId(e.target.value)}
-          className="px-3 py-1.5 text-sm border border-border rounded-lg bg-surface cursor-pointer">
-          {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-      </div>
+      <OperationalContextSummary />
+      <OperationalContextBanner />
 
       <div className="border-b border-border mb-4">
         <nav className="flex gap-1 -mb-px">
@@ -81,12 +70,19 @@ export default function AccionesPage() {
         </nav>
       </div>
 
-      {activeTab === 'inbox' && <ImprovementInbox siteId={siteId!} key={refreshKey + '-inbox'} onSelect={handleSelect} />}
-      {activeTab === 'kanban' && <QuickActionKanban siteId={siteId!} key={refreshKey + '-kanban'} onSelect={(item) => { setEditingItem(item); setShowForm(true) }} />}
-      {activeTab === 'portfolio' && <ImprovementPortfolio siteId={siteId!} key={refreshKey + '-portfolio'} onSelect={handleSelect} />}
+      {!selectedSiteId && (
+        <EmptyState
+          title="Selecciona un sitio"
+          description="Las oportunidades, acciones rapidas y proyectos se gestionan contra el sitio global."
+        />
+      )}
 
-      {showForm && (
-        <ImprovementForm siteId={siteId!} item={editingItem} onClose={() => setShowForm(false)} onSave={onSave} />
+      {selectedSiteId && activeTab === 'inbox' && <ImprovementInbox siteId={selectedSiteId} key={refreshKey + '-inbox'} onSelect={handleSelect} />}
+      {selectedSiteId && activeTab === 'kanban' && <QuickActionKanban siteId={selectedSiteId} key={refreshKey + '-kanban'} onSelect={(item) => { setEditingItem(item); setShowForm(true) }} />}
+      {selectedSiteId && activeTab === 'portfolio' && <ImprovementPortfolio siteId={selectedSiteId} key={refreshKey + '-portfolio'} onSelect={handleSelect} />}
+
+      {showForm && selectedSiteId && (
+        <ImprovementForm siteId={selectedSiteId} item={editingItem} onClose={() => setShowForm(false)} onSave={onSave} />
       )}
     </div>
   )

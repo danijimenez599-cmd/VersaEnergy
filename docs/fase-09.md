@@ -1,5 +1,9 @@
 # Fase 9 — Workspace SGEn alineado con ISO 50001
 
+> Nota documental: esta fase queda como referencia de construccion original y
+> guardrail legal. Para trabajo futuro usa `05_MASTER_IMPROVEMENT_PLAN.md`,
+> especialmente MP-10.
+
 ## Objetivo
 
 Crear un workspace para operar, documentar y auditar un Sistema de Gestion de la

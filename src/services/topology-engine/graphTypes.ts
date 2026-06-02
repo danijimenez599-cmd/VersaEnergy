@@ -223,7 +223,7 @@ export interface MeasurementPoint {
   site_id: string
   tag: string
   name: string
-  target_type: 'node' | 'edge' | 'system' | 'area'
+  target_type: 'node' | 'edge' | 'system' | 'area' | 'equipment'
   target_id: string
   utility: string
   measurement_type: MeasurementType

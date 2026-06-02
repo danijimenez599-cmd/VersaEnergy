@@ -85,13 +85,14 @@ export function Router() {
               }
             />
             <Route
-              path="modelo"
+              path="equipos"
               element={
                 <Suspense fallback={<PageLoader />}>
                   <ModeloPage />
                 </Suspense>
               }
             />
+            <Route path="modelo" element={<Navigate to="/equipos" replace />} />
             <Route
               path="medicion"
               element={

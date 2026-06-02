@@ -2,7 +2,7 @@
 export const MODULES = [
   { id: 'inicio', label: 'Inicio', path: '/', icon: 'LayoutDashboard' },
   { id: 'mapa', label: 'Mapa Energy & Utilities', path: '/mapa', icon: 'Network' },
-  { id: 'modelo', label: 'Modelo', path: '/modelo', icon: 'Database' },
+  { id: 'equipos', label: 'Equipos', path: '/equipos', icon: 'Database' },
   { id: 'medicion', label: 'Medición', path: '/medicion', icon: 'Gauge' },
   { id: 'balances', label: 'Balances', path: '/balances', icon: 'Scale' },
   { id: 'desempeno', label: 'Desempeño', path: '/desempeno', icon: 'TrendingUp' },

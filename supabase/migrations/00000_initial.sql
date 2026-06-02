@@ -93,14 +93,14 @@ begin
   insert into public.profiles (auth_id, company_id, email, full_name, role)
   values (
     new.id,
-    (select id from companies order by created_at limit 1),
+    coalesce((select id from public.companies order by created_at limit 1), '00000000-0000-0000-0000-000000000000'::uuid),
     new.email,
     coalesce(new.raw_user_meta_data ->> 'full_name', new.email),
     'viewer'
   );
   return new;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = 'public, auth';
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created

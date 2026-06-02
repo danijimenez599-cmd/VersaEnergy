@@ -15,17 +15,26 @@ Supabase.
 
 ## Current Status
 
-VersaEnergy is a work in progress.
+VersaEnergy is a work in progress. The backend/domain foundation is already
+strong for an early product: Supabase, RLS, utility catalog, semantic graph,
+measurement, balances, EnPI, improvements and the SGEn base exist.
 
-- Phase 0: foundation + Supabase complete.
-- Phase 1: app shell + auth + multi-tenant complete.
-- Phase 2: utility model + standards + measurement points complete.
-- Phase 3: React Flow map MVP complete.
-- Phase 4 is the next architectural checkpoint: topology engine, validation,
-  versioning and serialization.
+The next work is not another broad backend pass. It is product hardening:
+business workflows, energy-engineering logic exposed correctly in UI, richer
+forms, data quality flows, map validation, balance execution, EnPI baseline
+workflows, project execution, SGEn evidence and reports.
+
+Current demo seed includes:
+
+- login: `admin@demo.com` / `AdminDemo123!`;
+- `Equipos` as the asset-tree entry point, with `/modelo` kept as legacy redirect;
+- physical/virtual meter assets linked to MeasurementPoints;
+- four real utility diagrams linked to the asset tree: electricity, steam,
+  compressed air and chilled water.
 
 See [AGENTS.md](AGENTS.md) for the canonical AI/project handoff and
-[docs/fase-04.md](docs/fase-04.md) for the next planned phase.
+[docs/05_MASTER_IMPROVEMENT_PLAN.md](docs/05_MASTER_IMPROVEMENT_PLAN.md) for
+the current future implementation plan.
 
 ## Stack
 
@@ -53,17 +62,22 @@ npm run preview
 ## Documentation Map
 
 - [AGENTS.md](AGENTS.md): canonical instructions for AI agents.
+- [docs/00_DOCUMENTATION_INDEX.md](docs/00_DOCUMENTATION_INDEX.md): documentation map and priority.
 - [docs/01_PRODUCT_VISION.md](docs/01_PRODUCT_VISION.md): product vision.
 - [docs/02_TOPOLOGY_ENGINE.md](docs/02_TOPOLOGY_ENGINE.md): topology and graph model.
 - [docs/03_AI_DEVELOPMENT_ROADMAP.md](docs/03_AI_DEVELOPMENT_ROADMAP.md): historical roadmap and AI planning notes.
-- [docs/fase-00.md](docs/fase-00.md) to [docs/fase-11.md](docs/fase-11.md): current phase contracts.
+- [docs/04_CURRENT_STATE_REFERENCE.md](docs/04_CURRENT_STATE_REFERENCE.md): what exists, what works and known gaps.
+- [docs/05_MASTER_IMPROVEMENT_PLAN.md](docs/05_MASTER_IMPROVEMENT_PLAN.md): current improvement plan for future work.
+- [docs/fase-00.md](docs/fase-00.md) to [docs/fase-11.md](docs/fase-11.md): build-phase reference and historical contracts.
 
 If docs conflict, use this priority:
 
 1. `AGENTS.md`
-2. `docs/fase-NN.md`
-3. product/topology docs
-4. historical roadmap
+2. `docs/05_MASTER_IMPROVEMENT_PLAN.md`
+3. `docs/04_CURRENT_STATE_REFERENCE.md`
+4. product/topology docs
+5. `docs/fase-NN.md`
+6. historical roadmap
 
 ## Hard Rules
 

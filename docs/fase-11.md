@@ -1,5 +1,8 @@
 # Fase 11 — QA, Demo Dataset, Beta
 
+> Nota documental: este plan queda como referencia inicial. Para implementacion
+> futura usa `05_MASTER_IMPROVEMENT_PLAN.md`, especialmente MP-13.
+
 ## Objetivo
 
 Preparar VersaEnergy para una demo beta funcional de punta a punta, con dataset completo que incluya múltiples utilities, datos realistas, y verificación de todos los flujos del sistema.

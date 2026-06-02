@@ -1,5 +1,8 @@
 # Fase 0 — Fundación del Repo + Supabase
 
+> Nota documental: esta fase queda como referencia de construccion original.
+> Para trabajo futuro usa `05_MASTER_IMPROVEMENT_PLAN.md`.
+
 ## Objetivo
 
 Crear la base técnica limpia y compilable para VersaEnergy, con el stack completo instalado, estructura modular, cliente Supabase configurado y migración inicial de multi-tenant.

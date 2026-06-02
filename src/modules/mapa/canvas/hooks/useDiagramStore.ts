@@ -1,17 +1,19 @@
 import { create } from 'zustand'
 import type { Node, Edge } from '@xyflow/react'
-import type { DiagramNodeData, DiagramEdgeData } from '@/services/topology-engine/graphTypes'
+import type { DiagramNodeData, DiagramEdgeData, DiagramStatus } from '@/services/topology-engine/graphTypes'
 
 interface DiagramState {
   diagramId: string | null
   diagramName: string
   diagramUtility: string | null
+  diagramStatus: DiagramStatus
   nodes: Node<DiagramNodeData>[]
   edges: Edge<DiagramEdgeData>[]
   selectedElement: { type: 'node' | 'edge'; id: string } | null
   isDirty: boolean
 
-  setDiagram: (id: string | null, name: string, utility: string | null) => void
+  setDiagram: (id: string | null, name: string, utility: string | null, status?: DiagramStatus) => void
+  setStatus: (status: DiagramStatus) => void
   setNodes: (nodes: Node<DiagramNodeData>[]) => void
   setEdges: (edges: Edge<DiagramEdgeData>[]) => void
   addNode: (node: Node<DiagramNodeData>) => void
@@ -29,13 +31,16 @@ export const useDiagramStore = create<DiagramState>((set) => ({
   diagramId: null,
   diagramName: '',
   diagramUtility: null,
+  diagramStatus: 'draft',
   nodes: [],
   edges: [],
   selectedElement: null,
   isDirty: false,
 
-  setDiagram: (id, name, utility) =>
-    set({ diagramId: id, diagramName: name, diagramUtility: utility, isDirty: false }),
+  setDiagram: (id, name, utility, status = 'draft') =>
+    set({ diagramId: id, diagramName: name, diagramUtility: utility, diagramStatus: status, isDirty: false }),
+
+  setStatus: (status) => set({ diagramStatus: status }),
 
   setNodes: (nodes) => set({ nodes, isDirty: true }),
   setEdges: (edges) => set({ edges, isDirty: true }),
@@ -76,6 +81,9 @@ export const useDiagramStore = create<DiagramState>((set) => ({
     })),
 
   selectElement: (el) => set({ selectedElement: el }),
-  resetDiagram: () => set({ diagramId: null, diagramName: '', diagramUtility: null, nodes: [], edges: [], selectedElement: null, isDirty: false }),
+  resetDiagram: () => set({
+    diagramId: null, diagramName: '', diagramUtility: null, diagramStatus: 'draft',
+    nodes: [], edges: [], selectedElement: null, isDirty: false,
+  }),
   markClean: () => set({ isDirty: false }),
 }))

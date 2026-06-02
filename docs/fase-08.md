@@ -1,5 +1,9 @@
 # Fase 8 — Acciones y Proyectos de Mejora
 
+> Nota documental: esta fase queda como referencia de construccion original y
+> plan de base para mejoras. Para trabajo futuro usa
+> `05_MASTER_IMPROVEMENT_PLAN.md`, especialmente MP-08 y MP-09.
+
 ## Resumen ejecutivo
 
 La Fase 8 convierte hallazgos energéticos y de utilities en trabajo ejecutable.
