@@ -14,7 +14,7 @@ Generar salidas profesionales para gestión, auditoría y respaldo técnico. PDF
 function generateMonthlyReport(siteId, period): PDFDocument
 function generateBalanceReport(balanceId): PDFDocument
 function generateEnPIReport(enpiId, from, to): PDFDocument
-function generateISOReport(siteId): PDFDocument
+function generateSgenReport(siteId): PDFDocument
 ```
 
 ### 2. Plantillas PDF
@@ -43,8 +43,8 @@ Cada reporte debe incluir en header/footer:
 - Tabla de valores por periodo
 - % cumplimiento de objetivo
 
-**Reporte ISO:**
-- Resumen de cobertura del sistema
+**Reporte SGEn:**
+- Resumen de cobertura del sistema de gestión energética
 - SEUs con estado de medición
 - Objetivos con avance
 - Acciones abiertas
@@ -77,7 +77,7 @@ energy_generated_reports (
 | `src/services/reports-engine/templates/MonthlyReport.tsx` | Creado |
 | `src/services/reports-engine/templates/BalanceReport.tsx` | Creado |
 | `src/services/reports-engine/templates/EnPIReport.tsx` | Creado |
-| `src/services/reports-engine/templates/ISOReport.tsx` | Creado |
+| `src/services/reports-engine/templates/SgenReport.tsx` | Creado |
 | `src/services/reports-engine/index.ts` | Creado |
 | `src/modules/reportes/index.tsx` | Implementado |
 | `src/modules/reportes/views/ReportBuilder.tsx` | Creado |
@@ -92,7 +92,7 @@ energy_generated_reports (
 - [ ] PDF mensual con consumos, comparativas y calidad de datos
 - [ ] PDF de balance con todos los componentes
 - [ ] PDF de EnPI con tendencia y cumplimiento
-- [ ] PDF ISO con resumen de cobertura
+- [ ] PDF SGEn con resumen de cobertura, sin texto propietario ISO
 - [ ] Todos los PDFs muestran: periodo, utility, diagram version, fuente, usuario
 - [ ] Datos estimados identificados visualmente en PDF
 - [ ] CSV exportable de lecturas y balances
@@ -116,7 +116,7 @@ Tareas:
    - MonthlyReport: consumo por utility, comparativas, calidad datos
    - BalanceReport: todos los componentes del balance + diagram version
    - EnPIReport: tendencia real vs baseline vs target
-   - ISOReport: cobertura del sistema de gestión
+   - SgenReport: cobertura del sistema de gestión energética
    - Cada PDF: header/footer con periodo, utility, fuente, usuario, "ESTIMADO" tags
 
 2. CSV export: lecturas por MeasurementPoint, resultados de balances

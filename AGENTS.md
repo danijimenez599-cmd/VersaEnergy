@@ -128,7 +128,7 @@ src/
     balances/     # Utility balances, calculations
     desempeno/    # EnPI, baselines, targets, performance
     acciones/     # Savings actions, Kanban
-    iso50001/     # ISO 50001 workspace
+    iso50001/     # SGEn workspace aligned with ISO 50001, no standard text copied
     reportes/     # PDF/CSV reports
     admin/        # Administration, users, settings
   store/          # Zustand stores
@@ -418,8 +418,8 @@ Work through phases sequentially. Read `docs/fase-NN.md` for detailed instructio
 | 5 | Medición + Acumuladores + IoT Binding | ✅ Complete | [fase-05.md](docs/fase-05.md) |
 | 6 | Balances + Overlays Visuales | ✅ Complete | [fase-06.md](docs/fase-06.md) |
 | 7 | EnPI, Baselines, Objetivos | ✅ Complete | [fase-07.md](docs/fase-07.md) |
-| 8 | Acciones de Ahorro | ⬜ Pending | [fase-08.md](docs/fase-08.md) |
-| 9 | Workspace ISO 50001 | ⬜ Pending | [fase-09.md](docs/fase-09.md) |
+| 8 | Acciones y Proyectos de Mejora | ✅ Complete (8a) | [fase-08.md](docs/fase-08.md) |
+| 9 | Workspace SGEn alineado con ISO 50001 | ✅ Complete (9a) | [fase-09.md](docs/fase-09.md) |
 | 10 | Reportes PDF/CSV + SVG/JSON Export | ⬜ Pending | [fase-10.md](docs/fase-10.md) |
 | 11 | QA, Demo Dataset, Beta | ⬜ Pending | [fase-11.md](docs/fase-11.md) |
 
@@ -473,9 +473,10 @@ Edge identification MUST use multi-channel approach:
 6. Balance engine (`src/services/balance-engine/`) is pure logic, no React dependency.
 7. Standards engine (`src/services/standards-engine/`) catalogs ISA-5.1, IEC 60617, ISO 14617, ISO/IEC 81346.
 8. Diagram versioning: draft → published (frozen) → clone to new draft → edit → publish.
-9. ISO 50001 module translates the standard into practical workflows, does not copy text.
-10. No VersaMaint integration in MVP (deferred to post-MVP).
-11. Frontend never talks directly to industrial protocols (MQTT, OPC UA, Modbus).
-12. Every equipment/node must have a unique tag.
-13. Edges must specify flow direction.
-14. Validation engine runs from Phase 4 onward.
+9. SGEn / ISO 50001 module translates energy management into practical workflows; it must not copy ISO text, tables, definitions, clauses or official checklists.
+10. The product must not imply ISO certification, ISO endorsement, or replacement of the official standard.
+11. No VersaMaint integration in MVP (deferred to post-MVP).
+12. Frontend never talks directly to industrial protocols (MQTT, OPC UA, Modbus).
+13. Every equipment/node must have a unique tag.
+14. Edges must specify flow direction.
+15. Validation engine runs from Phase 4 onward.

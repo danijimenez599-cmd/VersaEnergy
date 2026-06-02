@@ -76,7 +76,7 @@ Una fase = un entregable funcional o documental verificable.
 7. Balances y overlays por utility
 8. EnPI, baseline y objetivos
 9. Acciones de ahorro
-10. Workspace ISO 50001
+10. Workspace SGEn alineado con ISO 50001
 11. Reportes
 12. Integración VersaMaint
 13. Inteligencia energética y de utilities
@@ -612,11 +612,17 @@ Debe compilar con npm run build.
 
 ---
 
-## Fase 9 — Acciones de ahorro
+## Fase 9 — Acciones y proyectos de mejora
+
+> Nota de consistencia: en el plan vigente esta capacidad vive en
+> `fase-08.md`. Este roadmap es historico y conserva numeracion antigua.
 
 ### Objetivo
 
-Convertir hallazgos energéticos y de utilities en trabajo gestionable.
+Convertir hallazgos energéticos y de utilities en trabajo gestionable. Las
+iniciativas simples se tratan como acciones rápidas; las iniciativas complejas
+se tratan como proyectos de mejora con fases, tareas, recursos, presupuesto,
+baseline, Gantt ligero, evidencia y cierre.
 
 ### Tareas
 
@@ -642,7 +648,7 @@ Convertir hallazgos energéticos y de utilities en trabajo gestionable.
 
 ### Entregable
 
-Sistema de acciones de ahorro para energía y utilities.
+Sistema de acciones rápidas y proyectos de mejora para energía y utilities.
 
 ### Criterios de aceptación
 
@@ -657,7 +663,7 @@ Sistema de acciones de ahorro para energía y utilities.
 ### Prompt sugerido
 
 ```txt
-Implementa el módulo de acciones de ahorro de VersaEnergy.
+Implementa el módulo de acciones y proyectos de mejora de VersaEnergy.
 Crea tablas para action_plans, savings_projects, action_evidence y action_comments.
 Crea estados idea, analysis, approved, in_progress, verified, closed y cancelled.
 Agrega vista Kanban, vista tabla y formulario de acción.
@@ -668,11 +674,14 @@ Debe compilar con npm run build.
 
 ---
 
-## Fase 10 — Workspace ISO 50001
+## Fase 10 — Workspace SGEn alineado con ISO 50001
 
 ### Objetivo
 
-Crear el sistema de gestión energética dentro de la app, apoyado por datos de energía y utilities.
+Crear un workspace para operar, documentar y auditar un Sistema de Gestion de la
+Energia (SGEn) alineado con ISO 50001, apoyado por datos de energia y utilities.
+No debe copiar texto propietario del estandar ni presentarse como sustituto de
+la norma oficial.
 
 ### Tareas
 
@@ -680,10 +689,10 @@ Crear el sistema de gestión energética dentro de la app, apoyado por datos de 
    - alcance,
    - política,
    - revisión energética,
-   - SEUs,
+   - usos significativos de energía,
    - riesgos y oportunidades,
    - objetivos,
-   - planes,
+   - planes vinculados a acciones/proyectos,
    - evidencias,
    - auditorías,
    - revisión gerencial,
@@ -691,29 +700,33 @@ Crear el sistema de gestión energética dentro de la app, apoyado por datos de 
 2. Crear tablas correspondientes.
 3. Relacionar evidencias con datos, mapas, utilities, EnPI y acciones.
 4. Incluir campos de acción climática.
-5. Crear tablero de cobertura ISO.
+5. Crear tablero de cobertura del SGEn.
+6. Incluir guardrails legales: sin texto ISO copiado, sin logo ISO, sin promesa
+   de certificación, con origen de contenido en evidencias y documentos.
 
 ### Entregable
 
-Workspace ISO 50001 operativo.
+Workspace SGEn operativo y alineado con ISO 50001.
 
 ### Criterios de aceptación
 
 - Se define alcance.
-- Se registran SEUs por utility, área, equipo o proceso.
+- Se registran usos significativos por utility, área, equipo o proceso.
 - Se crean objetivos.
 - Se adjuntan evidencias.
 - Se registra auditoría o revisión.
+- No hay texto, tablas, definiciones ni checklists copiados del estándar.
 - `npm run build` funciona.
 
 ### Prompt sugerido
 
 ```txt
-Implementa el Workspace ISO 50001 de VersaEnergy.
-No copies texto del estándar; traduce ISO a flujos prácticos.
-Crea secciones para alcance, política, revisión energética, SEUs, riesgos, objetivos, planes, evidencias, auditorías, revisión gerencial y no conformidades.
+Implementa el Workspace SGEn alineado con ISO 50001 de VersaEnergy.
+No copies texto del estándar; usa lenguaje original de VersaEnergy.
+Crea secciones para alcance, política propia, revisión energética, usos significativos, riesgos, objetivos, planes vinculados a acciones/proyectos, evidencias, auditorías, revisión gerencial y no conformidades.
 Relaciona evidencias con mapas, utilities, datos, EnPI y acciones.
 Incluye campos para riesgos y oportunidades de acción climática.
+No prometas certificación ISO ni uses checklists oficiales copiadas.
 Debe compilar con npm run build.
 ```
 
@@ -731,7 +744,7 @@ Generar salidas profesionales para gestión y auditoría.
 2. Crear PDF mensual.
 3. Crear PDF de balance por utility.
 4. Crear PDF de EnPI.
-5. Crear PDF ISO.
+5. Crear PDF de cobertura SGEn.
 6. Exportar CSV de lecturas.
 7. Exportar CSV de balances.
 8. Guardar historial de reportes.

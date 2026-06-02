@@ -9,7 +9,7 @@ No debe ser solamente un dashboard de electricidad. Debe ser una herramienta par
 La idea central es:
 
 ```txt
-VersaEnergy = Mapa vivo de energía y utilities + Medición + Balance + Desempeño + Acciones + ISO 50001
+VersaEnergy = Mapa vivo de energía y utilities + Medición + Balance + Desempeño + Acciones + SGEn alineado con ISO 50001
 ```
 
 ## Alcance de utilities
@@ -99,7 +99,7 @@ La app debe ayudar a responder:
 
 ### 2. Operación antes que documentación
 
-ISO 50001 debe sentirse como una consecuencia de operar bien la energía y los utilities. La evidencia debe nacer de diagramas, mediciones, balances, acciones, objetivos y revisiones.
+El SGEn alineado con ISO 50001 debe sentirse como una consecuencia de operar bien la energía y los utilities. La evidencia debe nacer de diagramas, mediciones, balances, acciones, objetivos y revisiones.
 
 ### 3. Mismo ADN que VersaMaint
 
@@ -115,9 +115,12 @@ VersaEnergy debe verse y sentirse como parte de la familia Versa:
 
 ## Referencia normativa
 
-La base normativa será **ISO 50001:2018**, considerando también la enmienda **ISO 50001:2018/Amd 1:2024 — Climate action changes**.
+La base normativa de referencia será **ISO 50001:2018**, considerando también
+la enmienda **ISO 50001:2018/Amd 1:2024 — Climate action changes**.
 
-La app no debe copiar el texto del estándar. Debe traducirlo a funciones prácticas:
+La app no debe copiar texto del estándar ni presentarse como sustituto de la
+norma oficial. Debe operar un Sistema de Gestión de la Energía (SGEn) alineado
+con ISO 50001, usando lenguaje propio de VersaEnergy y funciones prácticas:
 
 - alcance energético,
 - política energética,
@@ -133,6 +136,12 @@ La app no debe copiar el texto del estándar. Debe traducirlo a funciones práct
 - mejora continua.
 
 Aunque el sistema cubra múltiples utilities, su estructura debe servir para demostrar gestión del desempeño energético, eficiencia, uso y consumo de energía en el sentido amplio del sistema de gestión.
+
+VersaEnergy no debe prometer certificación ISO, aprobación por ISO ni uso del
+logo ISO. La promesa correcta es preparación operativa, trazabilidad y cobertura
+del SGEn para apoyar auditorías internas, revisión gerencial y procesos de
+certificación cuando el cliente los gestione con sus asesores u organismo
+correspondiente.
 
 ## Estilo visual
 
@@ -201,17 +210,24 @@ Ejemplos:
 - TR-h por área,
 - GJ por unidad producida.
 
-### 7. Acciones de Ahorro
+### 7. Acciones y Proyectos de Mejora
 
-Conversión de hallazgos energéticos y de utilities en acciones con responsable, ahorro esperado, ahorro real, evidencia y estado.
+Conversión de hallazgos energéticos y de utilities en acciones rápidas o
+proyectos de mejora. Las acciones simples se gestionan con responsable, ahorro,
+evidencia y estado. Las iniciativas grandes se gestionan como proyectos con
+fases, tareas, recursos, inversión, avance, verificación de ahorro y cierre.
 
-### 8. ISO 50001
+### 8. SGEn alineado con ISO 50001
 
-Workspace para alcance, política, revisión energética, SEUs, objetivos, evidencias, auditorías, revisión gerencial y mejora continua.
+Workspace para alcance, política propia, revisión energética, usos
+significativos, objetivos, evidencias, auditorías internas, revisión gerencial y
+mejora continua. Debe evitar texto propietario del estándar y usar lenguaje
+original del producto.
 
 ### 9. Reportes
 
-Reportes PDF/CSV de consumo, balances, desempeño, acciones e ISO 50001, filtrables por utility.
+Reportes PDF/CSV de consumo, balances, desempeño, acciones y cobertura del SGEn,
+filtrables por utility.
 
 ### 10. Integración VersaMaint
 
@@ -228,9 +244,9 @@ VersaEnergy será valioso si permite a un usuario:
 5. Importar lecturas.
 6. Ver consumos, pérdidas y desviaciones sobre el mapa.
 7. Detectar consumo no explicado, fugas o pérdidas.
-8. Crear una acción de ahorro.
+8. Crear una acción rápida o proyecto de mejora.
 9. Medir desempeño con EnPI.
-10. Generar evidencia para ISO 50001.
+10. Generar evidencia para el SGEn alineado con ISO 50001.
 11. Conectar hallazgos con mantenimiento.
 
 ## Frase guía
