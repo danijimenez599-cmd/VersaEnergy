@@ -23,7 +23,28 @@ export type {
   StandardsProfile,
   ValidationSeverity,
   ValidationIssue,
+  ValidationRule,
+  ValidationContext,
   UtilityEdgeStyle,
+  UtilityGraph,
+  GraphNode,
+  GraphEdge,
+  MeasurementScope,
+  BalanceTree,
+  DiagramSnapshot,
+  DiagramStatus,
+  DiagramVersion,
+  UtilityRuleSet,
+  UnitConversion,
 } from './graphTypes'
 
 export { NODE_FAMILIES } from './graphTypes'
+export { UTILITY_RULES, getRuleSet, areUtilitiesCompatible, isNodeTypeAllowed, isMeterTypeAllowed, isEdgeTypeAllowed } from './utilityRules'
+export { getConversion, getAllConversions, convertUnits, areUnitsCompatible } from './unitConversion'
+export { validationRules, validate, validateDiagram, validateNode, validateEdge, getIssuesBySeverity, hasErrors } from './validators'
+export { compileGraph, compileFromRows } from './compiler'
+export { getConnectedComponent, getUpstreamNodes, getDownstreamNodes, getPath, getMeasuredNodes, getUnmeasuredNodes, getNodesByUtility, getSourceNodes, getLeafNodes } from './graphQueries'
+export { createSnapshot, snapshotToJson, parseSnapshot, compareSnapshots } from './serialization'
+export { canEdit, canPublish, canArchive, canClone, createVersionNumber, publishVersion, archiveVersion, createCloneVersion, getActiveVersion, getLatestDraft, validateVersionTransition } from './topologyVersioning'
+export type { VersioningResult } from './topologyVersioning'
+export type { PathResult } from './graphQueries'

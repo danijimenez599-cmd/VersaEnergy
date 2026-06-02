@@ -268,3 +268,144 @@ export const NODE_FAMILIES: Record<NodeFamily, { label: string; color: string }>
   organizational: { label: 'Organizacional', color: 'gray' },
   special: { label: 'Especial', color: 'red' },
 }
+
+// ── Graph Engine Types ──────────────────────────────────────────────
+
+export interface GraphNode {
+  id: string
+  diagramNodeId: string
+  type: DiagramNodeType
+  tag: string
+  label: string
+  utility: string
+  properties: Record<string, unknown>
+  measurementPoints: MeasurementPoint[]
+  incoming: string[]
+  outgoing: string[]
+  position: { x: number; y: number }
+}
+
+export interface GraphEdge {
+  id: string
+  diagramEdgeId: string
+  source: string
+  target: string
+  type: DiagramEdgeType
+  utility: string
+  flowDirection: FlowDirection
+  label?: string
+  lossFactor?: number
+  leakFactor?: number
+  measurementPoints: MeasurementPoint[]
+  properties: Record<string, unknown>
+}
+
+export interface MeasurementScope {
+  measurementPointId: string
+  tag: string
+  utility: string
+  targets: { type: 'node' | 'edge'; id: string }[]
+  coverage: 'direct' | 'indirect' | 'none'
+}
+
+export interface BalanceTree {
+  rootId: string
+  rootTag: string
+  utility: string
+  children: BalanceTree[]
+}
+
+export interface UtilityCompatibilityMap {
+  [utility: string]: string[]
+}
+
+export interface UtilityGraph {
+  id: string
+  diagramId: string
+  versionId: string
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  measurementScopes: MeasurementScope[]
+  balanceTrees: BalanceTree[]
+  validationIssues: ValidationIssue[]
+  utilityCompatibilityMap: Record<string, string[]>
+}
+
+export interface ValidationContext {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  measurementPoints: MeasurementPoint[]
+  utilityGraph: UtilityGraph
+}
+
+export interface ValidationRule {
+  id: string
+  severity: ValidationSeverity
+  appliesTo: 'node' | 'edge' | 'diagram' | 'measurement'
+  check: (ctx: ValidationContext) => ValidationIssue[]
+}
+
+// ── Serialization ───────────────────────────────────────────────────
+
+export interface DiagramSnapshot {
+  schemaVersion: string
+  id: string
+  name: string
+  versionId: string
+  versionNumber: number
+  createdAt: string
+  canvas: {
+    zoom: number
+    viewport: { x: number; y: number }
+    gridSize: number
+  }
+  nodes: Record<string, unknown>[]
+  edges: Record<string, unknown>[]
+  measurementPoints: Record<string, unknown>[]
+  standardsProfile: StandardsProfile
+  validationSummary: {
+    errors: number
+    warnings: number
+    info: number
+  }
+}
+
+// ── Versioning ──────────────────────────────────────────────────────
+
+export type DiagramStatus = 'draft' | 'published' | 'archived'
+
+export interface DiagramVersion {
+  id: string
+  diagramId: string
+  versionNumber: number
+  status: DiagramStatus
+  snapshot: DiagramSnapshot | null
+  createdBy: string | null
+  createdAt: string
+  publishedAt: string | null
+}
+
+// ── Unit Conversion ─────────────────────────────────────────────────
+
+export interface UnitConversion {
+  fromUnit: string
+  toUnit: string
+  factor: number
+  utility?: string
+  isEstimated: boolean
+}
+
+// ── Utility Compatibility Rules ─────────────────────────────────────
+
+export interface UtilityRuleSet {
+  utility: string
+  category: string
+  allowedNodeTypes: string[]
+  allowedEdgeTypes: string[]
+  allowedMeterTypes: string[]
+  validFlowUnits: string[]
+  validAccumulatorUnits: string[]
+  incompatibleWith: string[]
+  requiresSource: boolean
+  requiresFlowDirection: boolean
+}

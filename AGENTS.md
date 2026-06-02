@@ -414,10 +414,10 @@ Work through phases sequentially. Read `docs/fase-NN.md` for detailed instructio
 | 1 | App Shell + Auth + Multi-tenant | ✅ Complete | [fase-01.md](docs/fase-01.md) |
 | 2 | Modelo + Utility Definitions + Standards + MeasurementPoints | ✅ Complete | [fase-02.md](docs/fase-02.md) |
 | 3 | Mapa — Grafo Técnico MVP (React Flow) | ✅ Complete | [fase-03.md](docs/fase-03.md) |
-| 4 | Motor de Grafo + Validación + Versionado + Serialización | ⬜ Pending | [fase-04.md](docs/fase-04.md) |
-| 5 | Medición + Acumuladores + IoT Binding | ⬜ Pending | [fase-05.md](docs/fase-05.md) |
-| 6 | Balances + Overlays Visuales | ⬜ Pending | [fase-06.md](docs/fase-06.md) |
-| 7 | EnPI, Baselines, Objetivos | ⬜ Pending | [fase-07.md](docs/fase-07.md) |
+| 4 | Motor de Grafo + Validación + Versionado + Serialización | ✅ Complete | [fase-04.md](docs/fase-04.md) |
+| 5 | Medición + Acumuladores + IoT Binding | ✅ Complete | [fase-05.md](docs/fase-05.md) |
+| 6 | Balances + Overlays Visuales | ✅ Complete | [fase-06.md](docs/fase-06.md) |
+| 7 | EnPI, Baselines, Objetivos | ✅ Complete | [fase-07.md](docs/fase-07.md) |
 | 8 | Acciones de Ahorro | ⬜ Pending | [fase-08.md](docs/fase-08.md) |
 | 9 | Workspace ISO 50001 | ⬜ Pending | [fase-09.md](docs/fase-09.md) |
 | 10 | Reportes PDF/CSV + SVG/JSON Export | ⬜ Pending | [fase-10.md](docs/fase-10.md) |
