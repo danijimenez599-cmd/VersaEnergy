@@ -6,6 +6,7 @@ import { Badge } from '@/shared/Badge'
 import { Card } from '@/shared/Card'
 import { EmptyState } from '@/shared/EmptyState'
 import { Modal } from '@/shared/Modal'
+import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { useUIStore } from '@/store/uiStore'
 import {
   OperationalContextBanner,
@@ -60,6 +61,7 @@ export default function DesempenoPage() {
   const [showEnPIForm, setShowEnPIForm] = useState(false)
   const [baselineModal, setBaselineModal] = useState<EnPIFormModal>({ open: false, enpiId: null })
   const [targetModal, setTargetModal] = useState<EnPIFormModal>({ open: false, enpiId: null })
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string | null }>({ open: false, id: null })
 
   const { selectedSiteId, selectedUtilityType } = useUIStore()
 
@@ -121,9 +123,14 @@ export default function DesempenoPage() {
     loadEnpis()
   }
 
-  async function handleDeleteEnPI(id: string) {
-    if (!confirm('¿Eliminar este EnPI y sus datos históricos?')) return
-    await supabase.from('energy_enpis').delete().eq('id', id)
+  function handleDeleteEnPI(id: string) {
+    setDeleteConfirm({ open: true, id })
+  }
+
+  async function confirmDeleteEnPI() {
+    if (!deleteConfirm.id) return
+    setDeleteConfirm({ open: false, id: null })
+    await supabase.from('energy_enpis').delete().eq('id', deleteConfirm.id)
     loadEnpis()
   }
 
@@ -335,6 +342,17 @@ export default function DesempenoPage() {
           />
         )}
       </Modal>
+
+      {/* Delete EnPI confirm */}
+      <ConfirmDialog
+        open={deleteConfirm.open}
+        title="Eliminar EnPI"
+        description="Se eliminarán el indicador y todos sus datos históricos (baselines, objetivos, resultados). Esta acción no se puede deshacer."
+        confirmLabel="Eliminar"
+        danger
+        onConfirm={confirmDeleteEnPI}
+        onCancel={() => setDeleteConfirm({ open: false, id: null })}
+      />
     </div>
   )
 }

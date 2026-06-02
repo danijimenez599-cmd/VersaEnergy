@@ -1,45 +1,154 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@700;800&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --color-brand-blue: #1e40af;
-  --color-brand-blue-light: #3b82f6;
-  --color-brand-teal: #0d9488;
-  --color-brand-teal-light: #14b8a6;
-  --color-brand-orange: #ea580c;
+  /* ── Brand — idéntico a VersaMaint ─────────────────────────────── */
+  --color-brand:           #1B6FF8;
+  --color-brand-dark:      #0F5AD1;
+  --color-brand-light:     #F0F6FF;
+
+  /* ── Utility palette (Energy-specific) ─────────────────────────── */
+  --color-utility-electricity: #1B6FF8;
+  --color-utility-gas:         #ea580c;
+  --color-utility-steam:       #7c3aed;
+  --color-utility-air:         #0d9488;
+  --color-utility-water:       #0891b2;
+  --color-utility-chilled:     #06b6d4;
+  --color-utility-solar:       #f59e0b;
+  --color-utility-diesel:      #92400e;
+  --color-utility-hot-water:   #dc2626;
+
+  /* ── Semantic — idéntico a VersaMaint ──────────────────────────── */
+  --color-ok:              #15803d;
+  --color-ok-bg:           #f0fdf4;
+  --color-ok-border:       #bbf7d0;
+  --color-warn:            #b45309;
+  --color-warn-bg:         #fffbeb;
+  --color-warn-border:     #fde68a;
+  --color-danger:          #b91c1c;
+  --color-danger-bg:       #fef2f2;
+  --color-danger-border:   #fecaca;
+  --color-info:            #1d4ed8;
+  --color-info-bg:         #eff6ff;
+  --color-info-border:     #bfdbfe;
+
+  /* ── Backgrounds — idéntico a VersaMaint ───────────────────────── */
+  --color-bg-app:          #F4F7FB;
+  --color-bg-2:            #ffffff;
+  --color-bg-3:            #E8F0FB;
+  --color-surface:         #ffffff;
+  --color-surface-muted:   #F4F7FB;
+
+  /* ── Text ───────────────────────────────────────────────────────── */
+  --color-tx:              #111827;
+  --color-tx-2:            #374151;
+  --color-tx-3:            #6b7280;
+  --color-tx-4:            #9ca3af;
+  --color-border:          #f3f4f6;
+  --color-border-strong:   #e5e7eb;
+
+  /* ── Typography — idéntico a VersaMaint ────────────────────────── */
+  --font-sans:             'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-display:          'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono:             'JetBrains Mono', ui-monospace, monospace;
+
+  /* ── Border radius — idéntico a VersaMaint ─────────────────────── */
+  --radius-sm:    8px;
+  --radius-md:    10px;
+  --radius-lg:    14px;
+  --radius-xl:    16px;
+  --radius-2xl:   20px;
+  --radius-card:  14px;
+  --radius-modal: 20px;
+
+  /* ── Shadows — idéntico a VersaMaint ───────────────────────────── */
+  --shadow-card:        0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.05);
+  --shadow-card-hover:  0 2px 8px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.10);
+  --shadow-floating:    0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08);
+  --shadow-modal:       0 20px 25px -5px rgba(0,0,0,0.10), 0 8px 10px -6px rgba(0,0,0,0.06);
+
+  /* ── Legacy aliases (retrocompatibilidad con módulos existentes) ── */
+  --color-brand-blue:         #1B6FF8;
+  --color-brand-blue-light:   #3b82f6;
+  --color-brand-teal:         #0d9488;
+  --color-brand-teal-light:   #14b8a6;
+  --color-brand-orange:       #ea580c;
   --color-brand-orange-light: #f97316;
-  --color-brand-purple: #7c3aed;
+  --color-brand-purple:       #7c3aed;
   --color-brand-purple-light: #a855f7;
-  --color-brand-cyan: #0891b2;
-  --color-brand-cyan-light: #06b6d4;
-  --color-brand-red: #dc2626;
-  --color-brand-red-light: #ef4444;
-  --color-brand-gray: #6b7280;
-  --color-surface: #ffffff;
-  --color-surface-muted: #f9fafb;
-  --color-surface-elevated: #ffffff;
-  --color-border: #e5e7eb;
-  --color-border-light: #f3f4f6;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --radius-card: 0.5rem;
-  --radius-modal: 0.75rem;
-  --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
-  --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
+  --color-brand-cyan:         #0891b2;
+  --color-brand-cyan-light:   #06b6d4;
+  --color-brand-red:          #dc2626;
+  --color-brand-red-light:    #ef4444;
+  --color-brand-gray:         #6b7280;
+  --color-surface-elevated:   #ffffff;
 }
 
-* {
+*, *::before, *::after {
   box-sizing: border-box;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
   margin: 0;
   font-family: var(--font-sans);
-  background-color: var(--color-surface-muted);
-  color: #111827;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--color-bg-app);
+  color: var(--color-tx);
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
 }
 
 #root {
   min-height: 100vh;
+}
+
+/* ── Scrollbar — idéntico a VersaMaint ─────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-brand); border-radius: 4px; opacity: 0.4; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-brand-dark); opacity: 1; }
+
+/* ── Focus visible ──────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* ── Shadow utilities (usables como clases Tailwind via @layer) ─────── */
+.shadow-card         { box-shadow: var(--shadow-card); }
+.shadow-card-hover   { box-shadow: var(--shadow-card-hover); }
+.shadow-floating     { box-shadow: var(--shadow-floating); }
+.shadow-modal        { box-shadow: var(--shadow-modal); }
+
+/* ── Animations ─────────────────────────────────────────────────────── */
+@keyframes slide-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up    { animation: slide-in-up 0.2s ease-out forwards; }
+.animate-slide-right { animation: slide-in-right 0.2s ease-out forwards; }
+.animate-fade-in     { animation: fade-in 0.15s ease-out forwards; }
+.animate-slide-down  { animation: slide-down 0.2s ease-out forwards; }
+
+/* ── Print ──────────────────────────────────────────────────────────── */
+@media print {
+  .no-print { display: none !important; }
 }

@@ -1,111 +1,80 @@
-import { useState, type DragEvent } from 'react'
-import { ChevronDown, ChevronRight, GripVertical } from 'lucide-react'
-import type { DiagramNodeType } from '@/services/topology-engine/graphTypes'
+import { useState, useEffect, type DragEvent } from 'react'
+import { ChevronDown, ChevronRight, Search, Clock, X } from 'lucide-react'
+import { useDiagramStore } from '../canvas/hooks/useDiagramStore'
+import {
+  ALL_PALETTE_GROUPS,
+  getFilteredGroups,
+  type PaletteItemDef,
+} from './paletteConfig'
 
-interface PaletteItemDef {
-  type: DiagramNodeType
-  label: string
-  family: string
+// ── Recents ──────────────────────────────────────────────────────────────────
+
+const RECENTS_KEY = 'energy-palette-recents'
+const MAX_RECENTS = 5
+
+function loadRecents(): PaletteItemDef[] {
+  try {
+    const raw = localStorage.getItem(RECENTS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
 }
 
-interface PaletteGroup {
-  family: string
-  label: string
-  color: string
-  items: PaletteItemDef[]
+function saveRecent(item: PaletteItemDef) {
+  try {
+    const prev = loadRecents().filter((r) => r.type !== item.type)
+    localStorage.setItem(RECENTS_KEY, JSON.stringify([item, ...prev].slice(0, MAX_RECENTS)))
+  } catch {
+    // ignore
+  }
 }
 
-const groups: PaletteGroup[] = [
-  {
-    family: 'equipment', label: 'Equipos', color: 'border-l-blue-500',
-    items: [
-      { type: 'boiler', label: 'Caldera', family: 'equipment' },
-      { type: 'pump', label: 'Bomba', family: 'equipment' },
-      { type: 'compressor', label: 'Compresor', family: 'equipment' },
-      { type: 'chiller', label: 'Chiller', family: 'equipment' },
-      { type: 'cooling_tower', label: 'T. Enfriamiento', family: 'equipment' },
-      { type: 'tank', label: 'Tanque', family: 'equipment' },
-      { type: 'transformer', label: 'Transformador', family: 'equipment' },
-      { type: 'panel', label: 'Tablero', family: 'equipment' },
-      { type: 'generator', label: 'Generador', family: 'equipment' },
-      { type: 'heat_exchanger', label: 'Intercambiador', family: 'equipment' },
-      { type: 'motor', label: 'Motor', family: 'equipment' },
-      { type: 'consumer', label: 'Consumidor', family: 'equipment' },
-    ],
-  },
-  {
-    family: 'connector', label: 'Conectores', color: 'border-l-teal-500',
-    items: [
-      { type: 'connector_pipe', label: 'Tubería', family: 'connector' },
-      { type: 'connector_duct', label: 'Ducto', family: 'connector' },
-      { type: 'connector_cable', label: 'Cable', family: 'connector' },
-      { type: 'connector_busbar', label: 'Barra', family: 'connector' },
-      { type: 'header', label: 'Header', family: 'connector' },
-      { type: 'manifold', label: 'Manifold', family: 'connector' },
-    ],
-  },
-  {
-    family: 'control', label: 'Control', color: 'border-l-orange-500',
-    items: [
-      { type: 'valve', label: 'Válvula', family: 'control' },
-      { type: 'breaker', label: 'Breaker', family: 'control' },
-      { type: 'regulator', label: 'Regulador', family: 'control' },
-      { type: 'control_valve', label: 'Válv. Control', family: 'control' },
-      { type: 'check_valve', label: 'Válv. Check', family: 'control' },
-    ],
-  },
-  {
-    family: 'measurement', label: 'Medición', color: 'border-l-purple-500',
-    items: [
-      { type: 'flow_meter', label: 'Caudalímetro', family: 'measurement' },
-      { type: 'energy_meter', label: 'Medidor Energía', family: 'measurement' },
-      { type: 'power_meter', label: 'Power Meter', family: 'measurement' },
-      { type: 'pressure_sensor', label: 'Sensor Presión', family: 'measurement' },
-      { type: 'temperature_sensor', label: 'Sensor Temp.', family: 'measurement' },
-      { type: 'level_sensor', label: 'Sensor Nivel', family: 'measurement' },
-      { type: 'gas_meter', label: 'Medidor Gas', family: 'measurement' },
-      { type: 'water_meter', label: 'Medidor Agua', family: 'measurement' },
-      { type: 'steam_meter', label: 'Medidor Vapor', family: 'measurement' },
-    ],
-  },
-  {
-    family: 'iot', label: 'IoT / Datos', color: 'border-l-cyan-500',
-    items: [
-      { type: 'iot_device', label: 'Dispositivo IoT', family: 'iot' },
-      { type: 'gateway', label: 'Gateway', family: 'iot' },
-      { type: 'plc', label: 'PLC', family: 'iot' },
-      { type: 'edge_device', label: 'Edge Device', family: 'iot' },
-    ],
-  },
-  {
-    family: 'organizational', label: 'Organización', color: 'border-l-gray-500',
-    items: [
-      { type: 'area_node', label: 'Área', family: 'organizational' },
-      { type: 'process_node', label: 'Proceso', family: 'organizational' },
-      { type: 'production_line', label: 'Línea Prod.', family: 'organizational' },
-    ],
-  },
-  {
-    family: 'special', label: 'Especial', color: 'border-l-red-400',
-    items: [
-      { type: 'utility_source', label: 'Fuente Utility', family: 'special' },
-      { type: 'loss_node', label: 'Pérdida', family: 'special' },
-      { type: 'annotation', label: 'Anotación', family: 'special' },
-    ],
-  },
-]
+// ── Family color helpers ──────────────────────────────────────────────────────
 
-const familyColors: Record<string, string> = {
-  equipment: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100',
-  connector: 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100',
-  control: 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100',
-  measurement: 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100',
-  iot: 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100',
-  organizational: 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100',
-  special: 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100',
+const familyItemColors: Record<string, string> = {
+  equipment:     'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100',
+  connector:     'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100',
+  control:       'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100',
+  measurement:   'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100',
+  iot:           'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100',
+  organizational:'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100',
+  special:       'bg-red-50 text-red-600 border-red-200 hover:bg-red-100',
 }
+
+// ── Palette item component ────────────────────────────────────────────────────
+
+function PaletteItem({
+  item,
+  onDragStart,
+  compact = false,
+}: {
+  item: PaletteItemDef
+  onDragStart: (e: DragEvent<HTMLDivElement>, item: PaletteItemDef) => void
+  compact?: boolean
+}) {
+  const Icon = item.icon
+  const colorClass = familyItemColors[item.family] || 'bg-gray-50'
+
+  return (
+    <div
+      draggable
+      onDragStart={(e) => onDragStart(e, item)}
+      title={item.description}
+      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] border cursor-grab active:cursor-grabbing transition-all duration-100 select-none ${compact ? 'py-1' : ''} ${colorClass}`}
+    >
+      <Icon size={11} className="shrink-0 opacity-80" />
+      <span className="truncate font-medium leading-none">{item.label}</span>
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function NodePalette() {
+  const diagramUtility = useDiagramStore((s) => s.diagramUtility)
+
+  const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     equipment: true,
     connector: false,
@@ -115,6 +84,10 @@ export function NodePalette() {
     organizational: false,
     special: false,
   })
+  const [recents, setRecents] = useState<PaletteItemDef[]>([])
+
+  // Load recents on mount
+  useEffect(() => { setRecents(loadRecents()) }, [])
 
   function toggle(family: string) {
     setExpanded((prev) => ({ ...prev, [family]: !prev[family] }))
@@ -124,40 +97,122 @@ export function NodePalette() {
     e.dataTransfer.setData('application/reactflow-type', item.type)
     e.dataTransfer.setData('application/reactflow-family', item.family)
     e.dataTransfer.effectAllowed = 'move'
+    // Track recent
+    saveRecent(item)
+    setRecents(loadRecents())
   }
 
+  // Filtered groups based on utility + search query
+  const filteredGroups = getFilteredGroups(diagramUtility, query)
+
+  // If searching, auto-expand all groups that have results
+  const isSearching = query.trim().length > 0
+
+  // Build the flat all-items map for recents lookup
+  const allItemsFlat = ALL_PALETTE_GROUPS.flatMap((g) => g.items)
+  const visibleRecents = recents
+    .map((r) => allItemsFlat.find((i) => i.type === r.type))
+    .filter((i): i is PaletteItemDef => !!i)
+
   return (
-    <div className="w-52 bg-surface border-r border-border h-full overflow-y-auto shrink-0">
-      <div className="px-3 py-2.5 border-b border-border">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Paleta</p>
-      </div>
-      <div className="p-2 space-y-1">
-        {groups.map((group) => (
-          <div key={group.family}>
+    <div className="w-56 bg-white border-r border-gray-100 h-full flex flex-col shrink-0 shadow-[1px_0_0_0_#f3f4f6]">
+      {/* Header */}
+      <div className="px-3 py-2.5 border-b border-gray-100 shrink-0">
+        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+          Paleta de elementos
+        </p>
+        {/* Search */}
+        <div className="relative">
+          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar elemento..."
+            className="w-full pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1B6FF8]/20 focus:border-[#1B6FF8]/40 bg-gray-50 placeholder-gray-400"
+          />
+          {query && (
             <button
-              onClick={() => toggle(group.family)}
-              className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 cursor-pointer ${group.color} border-l-2`}
+              onClick={() => setQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
             >
-              {expanded[group.family] ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              {group.label}
+              <X size={11} />
             </button>
-            {expanded[group.family] && (
-              <div className="ml-2 mt-1 space-y-0.5">
-                {group.items.map((item) => (
-                  <div
-                    key={item.type}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, item)}
-                    className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs border cursor-grab active:cursor-grabbing transition-colors ${familyColors[item.family] || 'bg-gray-50'}`}
-                  >
-                    <GripVertical size={10} className="opacity-40" />
-                    {item.label}
-                  </div>
-                ))}
-              </div>
-            )}
+          )}
+        </div>
+
+        {/* Utility context badge */}
+        {diagramUtility && !isSearching && (
+          <p className="text-[10px] text-[#1B6FF8] mt-1.5 truncate">
+            Filtrado por utilidad activa
+          </p>
+        )}
+      </div>
+
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        {/* Recents section */}
+        {visibleRecents.length > 0 && !isSearching && (
+          <div className="mb-2">
+            <div className="flex items-center gap-1 px-1 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+              <Clock size={9} />
+              Recientes
+            </div>
+            <div className="grid grid-cols-2 gap-1 mt-1">
+              {visibleRecents.map((item) => (
+                <PaletteItem
+                  key={item.type}
+                  item={item}
+                  onDragStart={handleDragStart}
+                  compact
+                />
+              ))}
+            </div>
           </div>
-        ))}
+        )}
+
+        {/* No results message */}
+        {filteredGroups.length === 0 && (
+          <div className="py-6 text-center">
+            <p className="text-xs text-gray-400">Sin resultados para "{query}"</p>
+          </div>
+        )}
+
+        {/* Groups */}
+        {filteredGroups.map((group) => {
+          const isOpen = isSearching ? true : (expanded[group.family] ?? false)
+          return (
+            <div key={group.family}>
+              <button
+                onClick={() => toggle(group.family)}
+                className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-gray-600 hover:bg-gray-50 cursor-pointer transition-colors ${group.color} border-l-2`}
+              >
+                {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                <span className="flex-1 text-left">{group.label}</span>
+                <span className="text-[10px] text-gray-400 font-normal">{group.items.length}</span>
+              </button>
+
+              {isOpen && (
+                <div className="ml-2 mt-1 space-y-0.5">
+                  {group.items.map((item) => (
+                    <PaletteItem
+                      key={item.type}
+                      item={item}
+                      onDragStart={handleDragStart}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Footer summary */}
+      <div className="px-3 py-2 border-t border-gray-100 shrink-0">
+        <p className="text-[10px] text-gray-400 text-center">
+          Arrastra para agregar al diagrama
+        </p>
       </div>
     </div>
   )

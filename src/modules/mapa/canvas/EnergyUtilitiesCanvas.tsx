@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } fro
 import { ReactFlow, Background, Controls, MiniMap, MarkerType, ConnectionMode, type Connection, type Node, type Edge } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useDiagramStore } from './hooks/useDiagramStore'
+import { useDiagramReadings } from './hooks/useDiagramReadings'
 import { nodeTypes } from './nodes'
 import { edgeTypes } from './edges/UtilityEdge'
 import type { DiagramNodeData, DiagramEdgeData } from '@/services/topology-engine/graphTypes'
@@ -84,6 +85,28 @@ export function EnergyUtilitiesCanvas() {
   const addEdgeStore = useDiagramStore((s) => s.addEdge)
   const { selectedSiteId } = useUIStore()
   const [pendingNode, setPendingNode] = useState<PendingNode | null>(null)
+
+  // ── Live readings for MeasurementNodes ───────────────────────────────────
+  const fetchReadings = useDiagramReadings((s) => s.fetchReadings)
+  const clearReadings = useDiagramReadings((s) => s.clear)
+
+  useEffect(() => {
+    if (!selectedSiteId) { clearReadings(); return }
+    // Only fetch for nodes that are measurement family
+    const measurementFamilies = new Set(['flow_meter','energy_meter','power_meter',
+      'pressure_sensor','temperature_sensor','level_sensor','current_transformer',
+      'gas_meter','water_meter','steam_meter','custom_meter'])
+    const measurementNodeIds = nodes
+      .filter((n) => measurementFamilies.has(n.data.nodeType as string))
+      .map((n) => n.id)
+    if (measurementNodeIds.length === 0) { clearReadings(); return }
+    void fetchReadings(selectedSiteId, measurementNodeIds)
+    // Refresh every 60s
+    const timer = setInterval(() => {
+      void fetchReadings(selectedSiteId, measurementNodeIds)
+    }, 60_000)
+    return () => clearInterval(timer)
+  }, [selectedSiteId, nodes, fetchReadings, clearReadings])
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -188,7 +211,9 @@ export function EnergyUtilitiesCanvas() {
         <Background gap={16} color="#e5e7eb" />
         <Controls className="!rounded-lg !border !border-border !shadow-sm" />
         <MiniMap
-          className="!rounded-lg !border !border-border !shadow-sm"
+          position="bottom-right"
+          className="!rounded-xl !border !border-gray-200 !shadow-md"
+          style={{ background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(4px)' }}
           nodeColor={(node) => {
             const nt = (node.data as Record<string, unknown>)?.nodeType as string || ''
             const colors: Record<string, string> = {

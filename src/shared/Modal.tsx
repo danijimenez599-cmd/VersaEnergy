@@ -28,21 +28,13 @@ export function Modal({
   className = '',
 }: ModalProps) {
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = 'hidden'
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
+    if (open) document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
   }, [open])
 
   useEffect(() => {
-    function handleEsc(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    if (open) {
-      window.addEventListener('keydown', handleEsc)
-    }
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    if (open) window.addEventListener('keydown', handleEsc)
     return () => window.removeEventListener('keydown', handleEsc)
   }, [open, onClose])
 
@@ -50,18 +42,23 @@ export function Modal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm animate-fade-in" onClick={onClose} />
       <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <div
-        className={`relative w-full ${sizeStyles[size]} bg-surface rounded-(--radius-modal) shadow-modal border border-border z-10 ${className}`}
+        className={[
+          'relative w-full bg-white border border-[--color-border-strong]',
+          'rounded-[--radius-modal] shadow-modal z-10 animate-slide-up',
+          sizeStyles[size],
+          className,
+        ].join(' ')}
       >
         {(title || description) && (
           <div className="flex items-start justify-between p-6 pb-0">
             <div>
               {title && (
-                <h2 className="text-lg font-semibold text-gray-900">
+                <h2
+                  className="text-base font-bold text-gray-900"
+                  style={{ fontFamily: 'var(--font-display)' }}
+                >
                   {title}
                 </h2>
               )}
@@ -71,9 +68,9 @@ export function Modal({
             </div>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
+              className="p-1.5 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
             >
-              <X size={18} />
+              <X size={16} />
             </button>
           </div>
         )}

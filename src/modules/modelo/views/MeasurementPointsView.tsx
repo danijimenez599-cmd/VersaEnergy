@@ -4,6 +4,7 @@ import { Button } from '@/shared/Button'
 import { Badge } from '@/shared/Badge'
 import { EmptyState } from '@/shared/EmptyState'
 import { Modal } from '@/shared/Modal'
+import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { supabase } from '@/services/supabase'
 import {
   getAllowedQuantities,
@@ -157,6 +158,7 @@ export function MeasurementPointsView({ siteId, utilityType }: Props) {
   const [saving, setSaving] = useState(false)
   const [targetEntities, setTargetEntities] = useState<TargetEntity[]>([])
   const [tagCount, setTagCount] = useState(1)
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string | null }>({ open: false, id: null })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -262,9 +264,14 @@ export function MeasurementPointsView({ siteId, utilityType }: Props) {
     load()
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('¿Eliminar este punto de medición? Las lecturas vinculadas se eliminarán.')) return
-    await supabase.from('measurement_points').delete().eq('id', id)
+  function handleDelete(id: string) {
+    setDeleteConfirm({ open: true, id })
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirm.id) return
+    setDeleteConfirm({ open: false, id: null })
+    await supabase.from('measurement_points').delete().eq('id', deleteConfirm.id)
     load()
   }
 
@@ -374,6 +381,17 @@ export function MeasurementPointsView({ siteId, utilityType }: Props) {
           isEdit={Boolean(editingId)}
         />
       </Modal>
+
+      {/* Delete confirm */}
+      <ConfirmDialog
+        open={deleteConfirm.open}
+        title="Eliminar punto de medición"
+        description="Se eliminarán el punto de medición y todas sus lecturas vinculadas. Esta acción no se puede deshacer."
+        confirmLabel="Eliminar"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirm({ open: false, id: null })}
+      />
     </div>
   )
 }

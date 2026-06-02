@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -26,6 +26,7 @@ import {
   formatEnergyPeriod,
   utilityOptions,
 } from '@/shared/OperationalContext'
+import { OnboardingWizard } from '@/shared/OnboardingWizard'
 
 const iconMap: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -58,6 +59,8 @@ export function AppShell() {
   } = useUIStore()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [sitesLoading, setSitesLoading] = useState(true)
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const onboardingChecked = useRef<string | null>(null)
 
   async function handleLogout() {
     await signOut()
@@ -71,9 +74,21 @@ export function AppShell() {
       setAvailableSites(data || [])
       setSitesLoading(false)
     }
-
     loadSites()
   }, [setAvailableSites])
+
+  // Onboarding trigger: muestra wizard si el sitio seleccionado no tiene áreas
+  useEffect(() => {
+    if (!selectedSiteId || onboardingChecked.current === selectedSiteId) return
+    onboardingChecked.current = selectedSiteId
+    supabase
+      .from('energy_areas')
+      .select('id', { count: 'exact', head: true })
+      .eq('site_id', selectedSiteId)
+      .then(({ count }) => {
+        if ((count ?? 0) === 0) setShowOnboarding(true)
+      })
+  }, [selectedSiteId])
 
   if (loading) {
     return (
@@ -267,6 +282,15 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+
+      {/* Onboarding wizard — triggered for sites with no areas */}
+      {showOnboarding && selectedSiteId && (
+        <OnboardingWizard
+          siteId={selectedSiteId}
+          siteName={availableSites.find((s) => s.id === selectedSiteId)?.name ?? 'tu planta'}
+          onComplete={() => setShowOnboarding(false)}
+        />
+      )}
     </div>
   )
 }

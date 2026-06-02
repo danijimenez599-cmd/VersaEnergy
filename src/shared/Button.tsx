@@ -1,75 +1,73 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { type ButtonHTMLAttributes, type ReactNode, forwardRef } from 'react'
+import { Loader2 } from 'lucide-react'
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
+type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'success' | 'warning' | 'outline' | 'ghost'
+type ButtonSize = 'xs' | 'sm' | 'md' | 'lg'
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant
-  size?: 'sm' | 'md' | 'lg'
+  size?: ButtonSize
   leftIcon?: ReactNode
   rightIcon?: ReactNode
+  icon?: ReactNode
   loading?: boolean
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
-  primary:
-    'bg-brand-blue text-white hover:bg-brand-blue-light active:bg-brand-blue shadow-sm',
-  secondary:
-    'bg-surface border border-border text-gray-700 hover:bg-gray-50 active:bg-gray-100',
-  ghost:
-    'text-gray-600 hover:bg-gray-100 active:bg-gray-200',
-  danger:
-    'bg-brand-red text-white hover:bg-brand-red-light active:bg-red-700 shadow-sm',
+  primary:   'bg-brand text-white hover:bg-brand-dark shadow-sm border border-brand/20',
+  secondary: 'bg-white border border-[--color-border-strong] text-gray-900 hover:bg-gray-50',
+  danger:    'bg-danger text-white hover:opacity-90 border border-danger/20 shadow-sm',
+  success:   'bg-ok text-white hover:opacity-90 border border-ok/20 shadow-sm',
+  warning:   'bg-warn text-white hover:opacity-90 border border-warn/20 shadow-sm',
+  outline:   'bg-transparent border border-[--color-border-strong] text-gray-700 hover:bg-gray-50',
+  ghost:     'bg-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-transparent',
 }
 
-const sizeStyles = {
-  sm: 'px-3 py-1.5 text-xs rounded-lg gap-1.5',
-  md: 'px-4 py-2 text-sm rounded-lg gap-2',
-  lg: 'px-5 py-2.5 text-base rounded-xl gap-2.5',
+const sizeStyles: Record<ButtonSize, string> = {
+  xs: 'h-7 px-2.5 text-[11px] rounded-md gap-1',
+  sm: 'h-8 px-3 text-xs rounded-lg gap-1.5',
+  md: 'h-10 px-4 text-sm rounded-xl gap-2',
+  lg: 'h-11 px-5 text-sm rounded-xl gap-2',
 }
 
-export function Button({
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(({
   variant = 'primary',
   size = 'md',
   leftIcon,
   rightIcon,
+  icon,
   loading,
   disabled,
   className = '',
   children,
+  type = 'button',
   ...props
-}: ButtonProps) {
+}, ref) => {
+  const resolvedIcon = icon ?? leftIcon
   return (
     <button
-      className={`inline-flex items-center justify-center font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
-      disabled={disabled || loading}
+      ref={ref}
+      type={type}
+      disabled={loading || disabled}
+      className={[
+        'inline-flex items-center justify-center font-semibold whitespace-nowrap select-none cursor-pointer',
+        'transition-all duration-150',
+        'active:scale-[0.97]',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30',
+        'disabled:opacity-50 disabled:pointer-events-none',
+        variantStyles[variant],
+        sizeStyles[size],
+        className,
+      ].join(' ')}
       {...props}
     >
-      {loading ? (
-        <svg
-          className="animate-spin h-4 w-4"
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <circle
-            className="opacity-25"
-            cx="12"
-            cy="12"
-            r="10"
-            stroke="currentColor"
-            strokeWidth="4"
-          />
-          <path
-            className="opacity-75"
-            fill="currentColor"
-            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-          />
-        </svg>
-      ) : (
-        leftIcon
-      )}
-      {children}
-      {!loading && rightIcon}
+      {loading
+        ? <Loader2 size={14} className="animate-spin shrink-0" />
+        : resolvedIcon && <span className="shrink-0">{resolvedIcon}</span>
+      }
+      {children && <span>{children}</span>}
+      {!loading && rightIcon && <span className="shrink-0">{rightIcon}</span>}
     </button>
   )
-}
+})
+Button.displayName = 'Button'
