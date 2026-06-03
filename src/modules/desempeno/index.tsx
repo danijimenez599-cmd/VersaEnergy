@@ -6,6 +6,7 @@ import {
   Calculator,
   CheckCircle2,
   ChevronRight,
+  FlaskConical,
   Gauge,
   LineChart as LineChartIcon,
   Link2,
@@ -18,6 +19,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
+import { SignificantVariablesWorkbench } from './views/SignificantVariablesWorkbench'
 import {
   Bar,
   CartesianGrid,
@@ -201,6 +203,7 @@ export default function DesempenoPage() {
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [showEnPIForm, setShowEnPIForm] = useState(false)
+  const [variablesWorkbench, setVariablesWorkbench] = useState<{ open: boolean; enpiId: string | null }>({ open: false, enpiId: null })
   const [baselineModal, setBaselineModal] = useState<EnPIFormModal>({ open: false, enpiId: null })
   const [targetModal, setTargetModal] = useState<EnPIFormModal>({ open: false, enpiId: null })
   const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string | null }>({ open: false, id: null })
@@ -388,13 +391,30 @@ export default function DesempenoPage() {
             onCreate={() => setShowEnPIForm(true)}
           />
           {selectedEnpi && (
-            <EnPIWorkbench
-              enpi={selectedEnpi}
-              measurementPoints={measurementPoints}
-              onBaseline={() => setBaselineModal({ open: true, enpiId: selectedEnpi.id })}
-              onTarget={() => setTargetModal({ open: true, enpiId: selectedEnpi.id })}
-              onDelete={() => setDeleteConfirm({ open: true, id: selectedEnpi.id })}
-            />
+            <>
+              <EnPIWorkbench
+                enpi={selectedEnpi}
+                measurementPoints={measurementPoints}
+                onBaseline={() => setBaselineModal({ open: true, enpiId: selectedEnpi.id })}
+                onTarget={() => setTargetModal({ open: true, enpiId: selectedEnpi.id })}
+                onDelete={() => setDeleteConfirm({ open: true, id: selectedEnpi.id })}
+                onVariables={() => setVariablesWorkbench({ open: true, enpiId: selectedEnpi.id })}
+              />
+              {variablesWorkbench.open && variablesWorkbench.enpiId === selectedEnpi.id && (
+                <Modal
+                  open
+                  onClose={() => setVariablesWorkbench({ open: false, enpiId: null })}
+                  title="Variables significativas y análisis de regresión"
+                  size="xl"
+                >
+                  <SignificantVariablesWorkbench
+                    enpi={{ id: selectedEnpi.id, name: selectedEnpi.name, unit: selectedEnpi.unit }}
+                    measurementPoints={measurementPoints}
+                    onClose={() => setVariablesWorkbench({ open: false, enpiId: null })}
+                  />
+                </Modal>
+              )}
+            </>
           )}
         </div>
       )}
@@ -518,12 +538,14 @@ function EnPIWorkbench({
   onBaseline,
   onTarget,
   onDelete,
+  onVariables,
 }: {
   enpi: EnPI
   measurementPoints: MeasurementPoint[]
   onBaseline: () => void
   onTarget: () => void
   onDelete: () => void
+  onVariables: () => void
 }) {
   const baseline = enpi.baselines?.[0]
   const activeTargets = enpi.targets?.filter((target) => target.status === 'active') || []
@@ -555,6 +577,7 @@ function EnPIWorkbench({
             <div className="flex shrink-0 flex-wrap gap-2">
               <Button size="sm" variant="secondary" leftIcon={<BarChart3 size={14} />} onClick={onBaseline}>Baseline</Button>
               <Button size="sm" variant="secondary" leftIcon={<Target size={14} />} onClick={onTarget}>Objetivo</Button>
+              <Button size="sm" variant="secondary" leftIcon={<FlaskConical size={14} />} onClick={onVariables}>Variables</Button>
               <Button size="sm" variant="ghost" icon={<X size={14} />} onClick={onDelete} aria-label="Eliminar EnPI" />
             </div>
           </div>
@@ -630,7 +653,12 @@ function EnPIWorkbench({
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Variables significativas</p>
               <h3 className="text-sm font-bold text-slate-900">Condiciones que explican el periodo</h3>
             </div>
-            <Badge variant={variables.length > 0 ? 'ok' : 'warn'}>{variables.length} variables</Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant={variables.length > 0 ? 'ok' : 'warn'}>{variables.length} variables</Badge>
+              <Button size="xs" variant="secondary" leftIcon={<FlaskConical size={12} />} onClick={onVariables}>
+                Datos y análisis
+              </Button>
+            </div>
           </div>
           {variables.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">

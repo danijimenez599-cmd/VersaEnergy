@@ -4,8 +4,11 @@ import {
   ArrowRight,
   Camera,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   ClipboardCheck,
   Crosshair,
+  ExternalLink,
   FileCheck2,
   FileSearch,
   FolderKanban,
@@ -18,8 +21,10 @@ import {
   Target,
   UserCheck,
   Wrench,
+  X,
   Zap,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/services/supabase'
 import { Badge, utilityBadgeVariant } from '@/shared/Badge'
 import { Button } from '@/shared/Button'
@@ -28,10 +33,13 @@ import { EmptyState } from '@/shared/EmptyState'
 import { Modal } from '@/shared/Modal'
 import { getUtilityLabel } from '@/shared/OperationalContext'
 import { useUIStore } from '@/store/uiStore'
+import { DirectionView } from './views/DirectionView'
 import { LegalSettingsView } from './views/LegalSettingsView'
+import { PolicyView } from './views/PolicyView'
+import { RisksView } from './views/RisksView'
 import { ScopeView } from './views/ScopeView'
 
-type WorkspaceTab = 'cockpit' | 'planning' | 'audit' | 'corrective' | 'evidence' | 'scope' | 'legal'
+type WorkspaceTab = 'cockpit' | 'planning' | 'policy' | 'audit' | 'corrective' | 'evidence' | 'risks' | 'direction' | 'scope' | 'legal'
 type ModalMode = 'review' | 'seu' | 'objective' | 'audit' | 'nonconformity' | 'evidence' | null
 
 interface EnergyReview {
@@ -161,6 +169,11 @@ interface SgenData {
   improvements: Improvement[]
   enpis: Enpi[]
   measurementPoints: MeasurementPoint[]
+  // counts for maturity (lightweight, no full record load)
+  scopeApprovedCount: number
+  policyActiveCount: number
+  mgmtReviewCount: number
+  riskCount: number
 }
 
 const emptyData: SgenData = {
@@ -174,29 +187,78 @@ const emptyData: SgenData = {
   improvements: [],
   enpis: [],
   measurementPoints: [],
+  scopeApprovedCount: 0,
+  policyActiveCount: 0,
+  mgmtReviewCount: 0,
+  riskCount: 0,
 }
 
 const tabs: Array<{ id: WorkspaceTab; label: string; icon: ReactNode }> = [
   { id: 'cockpit', label: 'Cockpit', icon: <ShieldCheck size={14} /> },
   { id: 'planning', label: 'Planificación', icon: <Route size={14} /> },
+  { id: 'policy', label: 'Política', icon: <FileCheck2 size={14} /> },
+  { id: 'risks', label: 'Riesgos', icon: <AlertTriangle size={14} /> },
   { id: 'audit', label: 'Auditoría', icon: <ClipboardCheck size={14} /> },
   { id: 'corrective', label: 'No conformidades', icon: <Wrench size={14} /> },
   { id: 'evidence', label: 'Evidencia', icon: <FileSearch size={14} /> },
+  { id: 'direction', label: 'Dirección', icon: <UserCheck size={14} /> },
   { id: 'scope', label: 'Alcance', icon: <Crosshair size={14} /> },
   { id: 'legal', label: 'Legal', icon: <Scale size={14} /> },
 ]
 
-const auditTemplate: AuditQuestion[] = [
-  { topic: 'Alcance', question: '¿El alcance describe límites físicos, organizacionales y energéticos?', evidence: 'Alcance aprobado, exclusiones justificadas y mapa de fronteras.' },
-  { topic: 'Revisión energética', question: '¿La revisión identifica usos, consumo, costos, variables y oportunidades?', evidence: 'Revisión vigente con datos del periodo, hallazgos y fuentes.' },
-  { topic: 'SEUs', question: '¿Los usos significativos tienen criterio de significancia, medición, responsable y EnPI?', evidence: 'Matriz SEU, medidores vinculados, score y responsable.' },
-  { topic: 'Objetivos', question: '¿Los objetivos están conectados con EnPIs, metas, baseline y plan de acción?', evidence: 'Objetivo activo, target, ahorro estimado y acción/proyecto vinculado.' },
-  { topic: 'Control operacional', question: '¿Los SEUs tienen criterios de operación/mantenimiento y reacción ante desviaciones?', evidence: 'Procedimientos, setpoints, rutinas, límites y registros operativos.' },
-  { topic: 'Medición', question: '¿El plan de medición cubre EnPIs, SEUs y variables significativas?', evidence: 'Medidores, frecuencia, calidad de datos y método de cálculo.' },
-  { topic: 'Mejora', question: '¿Las oportunidades se convierten en acciones con verificación de resultados?', evidence: 'Acciones en módulo Acciones, M&V, ahorros estimados/reales.' },
-  { topic: 'Corrección', question: '¿Las desviaciones generan causa raíz, acción correctiva y verificación de eficacia?', evidence: 'No conformidades, responsable, fecha compromiso y verificación.' },
-  { topic: 'Revisión directiva', question: '¿La dirección revisa desempeño, auditorías, acciones, recursos y decisiones?', evidence: 'Acta, decisiones, recursos y seguimiento.' },
+/** Catálogo original de preguntas de auditoría interna del SGEn.
+ *  No reproduce texto de ninguna norma. Preguntas propias orientadas a evidencia objetiva.
+ */
+const AUDIT_CATALOG: AuditQuestion[] = [
+  // ── Contexto y sistema
+  { topic: 'Contexto y sistema', question: '¿Los límites del sistema cubren todas las fuentes de energía significativas y se documentaron las exclusiones con justificación?', evidence: 'Documento de alcance aprobado, mapa de fronteras, lista de exclusiones.' },
+  { topic: 'Contexto y sistema', question: '¿Los factores externos (tarifas, regulación, clima, mercado) que pueden afectar el desempeño energético están identificados y monitoreados?', evidence: 'Registro de riesgos y oportunidades con seguimiento activo.' },
+  { topic: 'Contexto y sistema', question: '¿Las partes interesadas con influencia en el desempeño energético están identificadas y sus requisitos considerados?', evidence: 'Lista de partes interesadas, requisitos legales y contractuales documentados.' },
+  // ── Liderazgo y política
+  { topic: 'Liderazgo y política', question: '¿La dirección puede demostrar que asigna recursos humanos, técnicos y financieros para el sistema de gestión de energía?', evidence: 'Presupuesto aprobado, roles asignados, registros de capacitación.' },
+  { topic: 'Liderazgo y política', question: '¿La política energética contiene compromisos verificables con datos del sistema (no solo declaraciones genéricas)?', evidence: 'Política vigente con versión y fecha, compromisos cuantificables.' },
+  { topic: 'Liderazgo y política', question: '¿La política energética está comunicada y es accesible para todo el personal relevante?', evidence: 'Evidencia de comunicación: reuniones, intranet, tableros, correos.' },
+  { topic: 'Liderazgo y política', question: '¿Existen roles y responsabilidades formalmente asignadas para la operación y mejora del sistema de gestión de energía?', evidence: 'Organigrama energético o matriz de responsabilidades.' },
+  // ── Planificación y riesgos
+  { topic: 'Planificación', question: '¿Los riesgos y oportunidades que pueden afectar el desempeño energético están registrados, priorizados y con tratamiento definido?', evidence: 'Registro de riesgos con probabilidad, impacto, plan de tratamiento y estado.' },
+  { topic: 'Planificación', question: '¿Las oportunidades identificadas en la revisión energética se convierten en acciones con responsable, fecha y método de verificación?', evidence: 'Acciones/proyectos en el módulo Acciones con estimado de ahorro.' },
+  // ── Revisión energética
+  { topic: 'Revisión energética', question: '¿La revisión energética documenta consumo y costos por fuente de energía para el periodo evaluado con datos verificables?', evidence: 'Revisión documentada, balances del periodo, fuente de datos declarada.' },
+  { topic: 'Revisión energética', question: '¿Las variables relevantes que explican las fluctuaciones de consumo están identificadas por uso (producción, clima, turnos, etc.)?', evidence: 'Lista de variables por SEU, análisis de correlación o tendencias.' },
+  { topic: 'Revisión energética', question: '¿La calidad de los datos de medición es suficiente para respaldar las conclusiones de la revisión?', evidence: 'Score de calidad de datos, cobertura de medición, medidores activos.' },
+  { topic: 'Revisión energética', question: '¿Las oportunidades de mejora identificadas en la revisión tienen dueño y seguimiento en el sistema?', evidence: 'Acciones derivadas de la revisión con estado actualizado.' },
+  // ── Usos significativos (SEUs)
+  { topic: 'SEUs', question: '¿Cada uso significativo tiene un criterio documentado que explica por qué fue seleccionado (consumo, costo, variabilidad, criticidad)?', evidence: 'Criterio de significancia por SEU, score justificado.' },
+  { topic: 'SEUs', question: '¿Los SEUs tienen medidores o puntos de medición asignados y los datos de consumo son rastreables en el sistema?', evidence: 'Medidores vinculados, lecturas disponibles, calidad de datos por punto.' },
+  { topic: 'SEUs', question: '¿Los SEUs tienen criterios operativos definidos: rangos normales, setpoints, condiciones de alarma y procedimientos de reacción?', evidence: 'Criterios de operación documentados en el SEU, procedimientos referenciados.' },
+  { topic: 'SEUs', question: '¿Existe un responsable designado y con conocimiento suficiente para cada uso significativo?', evidence: 'Responsable asignado en el SEU, evidencia de capacitación si aplica.' },
+  // ── EnPIs, Línea base y metas
+  { topic: 'Indicadores y metas', question: '¿Los EnPIs tienen líneas base y metas que permiten cuantificar la mejora de desempeño en el tiempo?', evidence: 'EnPIs activos con baseline, target definido y periodo de referencia.' },
+  { topic: 'Indicadores y metas', question: '¿Los resultados de desempeño muestran la tendencia del EnPI vs la línea base para el periodo revisado?', evidence: 'Gráfica o tabla de resultados por periodo, desviación documentada.' },
+  { topic: 'Indicadores y metas', question: '¿Los objetivos energéticos están conectados a un EnPI, tienen fecha de cumplimiento y plan de acción vinculado?', evidence: 'Objetivos activos con EnPI, target y acción/proyecto referenciado.' },
+  // ── Plan de acción
+  { topic: 'Plan de acción', question: '¿Las acciones y proyectos de mejora tienen estimado de ahorro, inversión y método de verificación (M&V)?', evidence: 'Acciones en módulo Acciones con ahorro estimado, inversión y método M&V.' },
+  { topic: 'Plan de acción', question: '¿Las acciones completadas documentan el ahorro real verificado vs el estimado?', evidence: 'Acciones cerradas con ahorro real capturado y periodo de monitoreo.' },
+  // ── Medición y datos
+  { topic: 'Medición y datos', question: '¿Los puntos de medición cubren los SEUs y las variables necesarias para calcular los EnPIs definidos?', evidence: 'Mapa de medición con cobertura de SEUs, lecturas continuas o periódicas.' },
+  { topic: 'Medición y datos', question: '¿Los medidores críticos para el cálculo de EnPIs tienen programa de calibración o verificación periódica?', evidence: 'Registros de calibración, fechas, resultados y acción ante desviaciones.' },
+  { topic: 'Medición y datos', question: '¿Las pérdidas no medidas en los balances son aceptables y se explican con base en la configuración del sistema?', evidence: 'Balances con unaccounted % documentado, justificación de pérdidas.' },
+  // ── Control operacional
+  { topic: 'Control operacional', question: '¿Existen criterios de operación para los SEUs y se comunican de manera efectiva a quienes los operan?', evidence: 'Procedimientos, instrucciones, setpoints disponibles para operadores.' },
+  { topic: 'Control operacional', question: '¿Las desviaciones operativas significativas de los SEUs se registran y generan acciones correctivas trazables?', evidence: 'Registros de desviación, no conformidades derivadas, seguimiento.' },
+  // ── Correcciones y mejora continua
+  { topic: 'Correcciones', question: '¿Las no conformidades tienen análisis de causa, acción correctiva, responsable y fecha compromiso?', evidence: 'NCs registradas con causa probable, acción, dueño y fecha.' },
+  { topic: 'Correcciones', question: '¿Se verifica la eficacia de las acciones correctivas antes de cerrar la no conformidad?', evidence: 'Verificación de eficacia documentada, evidencia adjunta o referenciada.' },
+  // ── Evidencia e información documentada
+  { topic: 'Evidencia', question: '¿La evidencia del sistema está organizada, es recuperable y demuestra que el sistema opera conforme a lo planificado?', evidence: 'Snapshots, notas, reportes y archivos clasificados por dominio.' },
+  { topic: 'Evidencia', question: '¿Los registros clave (revisión energética, SEUs, auditorías, NCs, decisiones de dirección) están accesibles y actualizados?', evidence: 'Registros con fecha reciente, versionados donde aplica, sin vacíos.' },
+  // ── Revisión por la dirección
+  { topic: 'Revisión directiva', question: '¿La revisión por la dirección incluye información actualizada sobre desempeño, objetivos, auditorías, NCs y recursos?', evidence: 'Acta de revisión con todas las entradas requeridas y datos del sistema.' },
+  { topic: 'Revisión directiva', question: '¿Las decisiones de la revisión directiva tienen responsable, fecha compromiso y mecanismo de seguimiento?', evidence: 'Decisiones registradas con dueño, fecha y estado de seguimiento.' },
 ]
+
+// Alias para compatibilidad con el checklist (muestra el catálogo completo si un audit no tiene preguntas propias)
+const auditTemplate = AUDIT_CATALOG
 
 const domainFlow = [
   { id: 'review', title: 'Revisión energética', detail: 'Consolidar consumo, costos, variables, hallazgos y oportunidades.', icon: <SearchCheck size={18} /> },
@@ -208,6 +270,7 @@ const domainFlow = [
 ]
 
 export default function Iso50001Page() {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('cockpit')
   const [modal, setModal] = useState<ModalMode>(null)
   const [loading, setLoading] = useState(true)
@@ -231,6 +294,10 @@ export default function Iso50001Page() {
       { data: improvements },
       { data: enpis },
       { data: measurementPoints },
+      { count: scopeApprovedCount },
+      { count: policyActiveCount },
+      { count: mgmtReviewCount },
+      { count: riskCount },
     ] = await Promise.all([
       supabase.from('sgen_energy_reviews').select('*').eq('site_id', selectedSiteId).order('created_at', { ascending: false }),
       supabase.from('sgen_significant_uses').select('*').eq('site_id', selectedSiteId).order('significance_score', { ascending: false }),
@@ -241,6 +308,10 @@ export default function Iso50001Page() {
       supabase.from('energy_improvements').select('id,title,status,priority,source_enpi_id,estimated_energy_savings,savings_unit,estimated_cost_savings').eq('site_id', selectedSiteId).neq('status', 'cancelled').order('created_at', { ascending: false }),
       supabase.from('energy_enpis').select('id,name,utility,unit').eq('site_id', selectedSiteId).eq('is_active', true).order('name'),
       supabase.from('measurement_points').select('id,tag,name,utility,quantity,unit').eq('site_id', selectedSiteId).eq('is_active', true).order('tag'),
+      supabase.from('sgen_scopes').select('id', { count: 'exact', head: true }).eq('site_id', selectedSiteId).eq('status', 'approved'),
+      supabase.from('sgen_policy_documents').select('id', { count: 'exact', head: true }).eq('site_id', selectedSiteId).eq('status', 'active'),
+      supabase.from('sgen_management_reviews').select('id', { count: 'exact', head: true }).eq('site_id', selectedSiteId),
+      supabase.from('sgen_risks_opportunities').select('id', { count: 'exact', head: true }).eq('site_id', selectedSiteId).neq('status', 'closed'),
     ])
 
     const auditIds = (audits || []).map((audit) => audit.id)
@@ -262,15 +333,49 @@ export default function Iso50001Page() {
       improvements: (improvements || []) as Improvement[],
       enpis: (enpis || []) as Enpi[],
       measurementPoints: (measurementPoints || []) as MeasurementPoint[],
+      scopeApprovedCount: scopeApprovedCount || 0,
+      policyActiveCount: policyActiveCount || 0,
+      mgmtReviewCount: mgmtReviewCount || 0,
+      riskCount: riskCount || 0,
     })
     setLoading(false)
   }, [selectedSiteId])
 
   useEffect(() => { load() }, [load])
 
+  const [ncPrefill, setNcPrefill] = useState<{ source?: string; description?: string } | null>(null)
   const maturity = useMemo(() => calculateMaturity(data), [data])
   const openNcCount = data.nonconformities.filter((item) => item.status !== 'closed').length
   const activeObjectiveCount = data.objectives.filter((item) => item.status === 'active').length
+
+  async function handleUpdateAuditQuestion(auditId: string, questionIndex: number, result: 'ok' | 'gap' | 'na') {
+    const audit = data.audits.find((a) => a.id === auditId)
+    if (!audit) return
+    const updatedQuestions = audit.questions.map((q, i) =>
+      i === questionIndex ? { ...q, result } : q
+    )
+    const allAnswered = updatedQuestions.every((q) => q.result)
+    await supabase.from('sgen_audits').update({
+      questions: updatedQuestions,
+      status: allAnswered ? 'completed' : 'in_progress',
+      ...(allAnswered ? { actual_date: new Date().toISOString().split('T')[0] } : {}),
+    }).eq('id', auditId)
+    load()
+  }
+
+  function handleCreateNcFromAudit(auditTitle: string, questionText: string) {
+    setNcPrefill({ source: `Auditoría: ${auditTitle}`, description: `GAP identificado: ${questionText}` })
+    setModal('nonconformity')
+  }
+
+  async function handleAdvanceNc(id: string, status: string, verificationEvidence?: string) {
+    await supabase.from('sgen_nonconformities').update({
+      status,
+      ...(verificationEvidence ? { verification_of_effectiveness: verificationEvidence } : {}),
+      updated_at: new Date().toISOString(),
+    }).eq('id', id)
+    load()
+  }
 
   async function handleSnapshot() {
     if (!selectedSiteId) return
@@ -332,12 +437,23 @@ export default function Iso50001Page() {
               openNcCount={openNcCount}
               onSnapshot={handleSnapshot}
               onOpen={setModal}
+              onNavigate={setActiveTab}
             />
           )}
-          {activeTab === 'planning' && <PlanningView data={data} onOpen={setModal} />}
-          {activeTab === 'audit' && <AuditView data={data} onOpen={setModal} />}
-          {activeTab === 'corrective' && <CorrectiveView data={data} onOpen={setModal} />}
+          {activeTab === 'planning' && <PlanningView data={data} onOpen={setModal} onNavigate={setActiveTab} onGoToModule={navigate} />}
+          {activeTab === 'policy' && selectedSiteId && <PolicyView siteId={selectedSiteId} />}
+          {activeTab === 'risks' && selectedSiteId && <RisksView siteId={selectedSiteId} />}
+          {activeTab === 'audit' && (
+            <AuditView
+              data={data}
+              onOpen={setModal}
+              onUpdateQuestion={handleUpdateAuditQuestion}
+              onCreateNcFromAudit={handleCreateNcFromAudit}
+            />
+          )}
+          {activeTab === 'corrective' && <CorrectiveView data={data} onOpen={setModal} onAdvanceNc={handleAdvanceNc} />}
           {activeTab === 'evidence' && <EvidenceView data={data} onOpen={setModal} />}
+          {activeTab === 'direction' && selectedSiteId && <DirectionView siteId={selectedSiteId} />}
           {activeTab === 'scope' && selectedSiteId && <ScopeView siteId={selectedSiteId} />}
           {activeTab === 'legal' && <LegalSettingsView />}
         </>
@@ -347,8 +463,9 @@ export default function Iso50001Page() {
         mode={modal}
         siteId={selectedSiteId}
         data={data}
-        onClose={() => setModal(null)}
-        onSaved={() => { setModal(null); load() }}
+        ncPrefill={ncPrefill}
+        onClose={() => { setModal(null); setNcPrefill(null) }}
+        onSaved={() => { setModal(null); setNcPrefill(null); load() }}
       />
     </div>
   )
@@ -391,6 +508,7 @@ function CockpitView({
   openNcCount,
   onSnapshot,
   onOpen,
+  onNavigate,
 }: {
   data: SgenData
   maturity: ReturnType<typeof calculateMaturity>
@@ -398,6 +516,7 @@ function CockpitView({
   openNcCount: number
   onSnapshot: () => void
   onOpen: (mode: ModalMode) => void
+  onNavigate: (tab: WorkspaceTab) => void
 }) {
   return (
     <div className="space-y-5">
@@ -452,7 +571,11 @@ function CockpitView({
                   {item.done ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
                   {item.label}
                 </span>
-                <Button size="xs" variant={item.done ? 'ghost' : 'secondary'} onClick={() => onOpen(item.action)}>
+                <Button
+                  size="xs"
+                  variant={item.done ? 'ghost' : 'secondary'}
+                  onClick={() => { if (item.action) onOpen(item.action); else if (item.tab) onNavigate(item.tab) }}
+                >
                   Abrir
                 </Button>
               </div>
@@ -464,9 +587,19 @@ function CockpitView({
   )
 }
 
-function PlanningView({ data, onOpen }: { data: SgenData; onOpen: (mode: ModalMode) => void }) {
+function PlanningView({
+  data,
+  onOpen,
+  onNavigate,
+  onGoToModule,
+}: {
+  data: SgenData
+  onOpen: (mode: ModalMode) => void
+  onNavigate: (tab: WorkspaceTab) => void
+  onGoToModule: (path: string) => void
+}) {
   return (
-    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_420px]">
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_400px]">
       <div className="space-y-5">
         <PanelHeader
           eyebrow="Planificación energética"
@@ -474,14 +607,14 @@ function PlanningView({ data, onOpen }: { data: SgenData; onOpen: (mode: ModalMo
           action={<Button size="sm" leftIcon={<SearchCheck size={14} />} onClick={() => onOpen('review')}>Nueva revisión</Button>}
         />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <SectionCard title="Revisiones energéticas" empty="No hay revisiones documentadas." items={data.reviews.map((review) => ({
+          <SectionCard title="Revisiones energéticas" empty="No hay revisiones documentadas. Crea la primera con el botón superior." items={data.reviews.map((review) => ({
             id: review.id,
-            title: `${formatDate(review.period_start)} - ${formatDate(review.period_end)}`,
+            title: `${formatDate(review.period_start)} – ${formatDate(review.period_end)}`,
             meta: `${review.status} · calidad ${review.data_quality_score ?? '-'}%`,
             detail: review.summary || 'Sin resumen',
             badge: `${review.linked_enpis?.length || 0} EnPI`,
           }))} />
-          <SectionCard title="Usos significativos" empty="No hay SEUs definidos." items={data.seus.map((seu) => ({
+          <SectionCard title="Usos significativos (SEUs)" empty="Sin SEUs. Usa 'Establecer SEU' para vincularlos a medidores existentes." items={data.seus.map((seu) => ({
             id: seu.id,
             title: seu.name,
             meta: `${getUtilityLabel(seu.utility)} · score ${seu.significance_score ?? '-'}`,
@@ -491,7 +624,7 @@ function PlanningView({ data, onOpen }: { data: SgenData; onOpen: (mode: ModalMo
           }))} />
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <SectionCard title="Objetivos SGEn" empty="No hay objetivos conectados." items={data.objectives.map((objective) => ({
+          <SectionCard title="Objetivos SGEn" empty="Sin objetivos. Crea uno vinculado a un EnPI activo." items={data.objectives.map((objective) => ({
             id: objective.id,
             title: objective.name,
             meta: objective.status,
@@ -499,81 +632,259 @@ function PlanningView({ data, onOpen }: { data: SgenData; onOpen: (mode: ModalMo
             badge: objective.linked_improvement_id ? 'con acción' : 'sin acción',
             variant: objective.linked_improvement_id ? 'ok' : 'warn',
           }))} />
-          <SectionCard title="Acciones conectadas" empty="No hay acciones de mejora." items={data.improvements.slice(0, 8).map((action) => ({
-            id: action.id,
-            title: action.title,
-            meta: `${action.status} · ${action.priority}`,
-            detail: `${Number(action.estimated_energy_savings || 0).toLocaleString('es')} ${action.savings_unit || ''} estimados`,
-            badge: action.source_enpi_id ? 'EnPI' : 'SGEn',
-            variant: 'info',
-          }))} />
+          <SectionCard
+            title="Acciones / Proyectos vinculados"
+            empty="Sin acciones vinculadas. Ve al módulo Acciones para crearlas."
+            action={<button onClick={() => onGoToModule('/acciones')} className="flex items-center gap-1 text-[11px] font-bold text-brand-blue hover:underline"><ExternalLink size={11} /> Ir a Acciones</button>}
+            items={data.improvements.slice(0, 8).map((action) => ({
+              id: action.id,
+              title: action.title,
+              meta: `${action.status} · ${action.priority}`,
+              detail: `${Number(action.estimated_energy_savings || 0).toLocaleString('es')} ${action.savings_unit || ''} estimados`,
+              badge: action.source_enpi_id ? 'EnPI' : 'SGEn',
+              variant: 'info',
+            }))}
+          />
         </div>
       </div>
 
-      <Card padding="md" className="rounded-2xl border-slate-200">
-        <div className="mb-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Mandar a llamar</p>
-          <h3 className="text-base font-black text-slate-950">Crear desde datos existentes</h3>
-          <p className="mt-1 text-xs leading-5 text-slate-500">Usa EnPIs y medición para levantar SEUs, objetivos y acciones sin capturar dos veces.</p>
-        </div>
-        <div className="space-y-3">
-          <ActionLauncher icon={<Zap size={16} />} title="Establecer SEU desde medición" detail={`${data.measurementPoints.length} medidores disponibles`} onClick={() => onOpen('seu')} />
-          <ActionLauncher icon={<Target size={16} />} title="Objetivo desde EnPI" detail={`${data.enpis.length} EnPIs activos`} onClick={() => onOpen('objective')} />
-          <ActionLauncher icon={<FolderKanban size={16} />} title="Crear acción de mejora" detail="Desde objetivo o no conformidad" onClick={() => onOpen('objective')} />
-          <ActionLauncher icon={<FileCheck2 size={16} />} title="Documentar evidencia" detail="Snapshot, nota o reporte generado" onClick={() => onOpen('evidence')} />
-        </div>
-      </Card>
+      <div className="space-y-4">
+        <Card padding="md" className="rounded-2xl border-slate-200">
+          <div className="mb-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Acciones rápidas</p>
+            <h3 className="text-base font-black text-slate-950">Registrar sin duplicar</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">Usa datos del sistema. No captures dos veces lo que ya existe.</p>
+          </div>
+          <div className="space-y-2">
+            <ActionLauncher
+              icon={<Zap size={16} />}
+              title="Establecer SEU desde medición"
+              detail={`${data.measurementPoints.length} medidores disponibles`}
+              onClick={() => onOpen('seu')}
+            />
+            <ActionLauncher
+              icon={<Target size={16} />}
+              title="Objetivo vinculado a EnPI"
+              detail={`${data.enpis.length} EnPIs activos`}
+              onClick={() => onOpen('objective')}
+            />
+            <ActionLauncher
+              icon={<FolderKanban size={16} />}
+              title="Ir al módulo Acciones"
+              detail="Crea o revisa proyectos y acciones de mejora"
+              onClick={() => onGoToModule('/acciones')}
+              external
+            />
+            <ActionLauncher
+              icon={<Gauge size={16} />}
+              title="Ver desempeño y EnPIs"
+              detail="Indicadores, líneas base y metas"
+              onClick={() => onGoToModule('/desempeno')}
+              external
+            />
+            <ActionLauncher
+              icon={<FileCheck2 size={16} />}
+              title="Documentar evidencia"
+              detail="Snapshot, nota o reporte del sistema"
+              onClick={() => onOpen('evidence')}
+            />
+          </div>
+        </Card>
+
+        <Card padding="md" className="rounded-2xl border-slate-200">
+          <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Otras secciones SGEn</p>
+          <div className="space-y-2">
+            {[
+              { label: 'Política energética', tab: 'policy' as WorkspaceTab },
+              { label: 'Riesgos y oportunidades', tab: 'risks' as WorkspaceTab },
+              { label: 'Auditoría interna', tab: 'audit' as WorkspaceTab },
+              { label: 'Revisión por la dirección', tab: 'direction' as WorkspaceTab },
+            ].map(({ label, tab }) => (
+              <button
+                key={tab}
+                onClick={() => onNavigate(tab)}
+                className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-brand-blue hover:text-brand-blue"
+              >
+                {label}
+                <ArrowRight size={13} className="text-slate-300" />
+              </button>
+            ))}
+          </div>
+        </Card>
+      </div>
     </div>
   )
 }
 
-function AuditView({ data, onOpen }: { data: SgenData; onOpen: (mode: ModalMode) => void }) {
-  const latestAudit = data.audits[0]
+function AuditView({
+  data,
+  onOpen,
+  onUpdateQuestion,
+  onCreateNcFromAudit,
+}: {
+  data: SgenData
+  onOpen: (mode: ModalMode) => void
+  onUpdateQuestion: (auditId: string, index: number, result: 'ok' | 'gap' | 'na') => Promise<void>
+  onCreateNcFromAudit: (auditTitle: string, questionText: string) => void
+}) {
+  const [selectedAuditId, setSelectedAuditId] = useState<string | null>(data.audits[0]?.id || null)
+  const selectedAudit = data.audits.find((a) => a.id === selectedAuditId) ?? data.audits[0] ?? null
+  const questions = selectedAudit?.questions?.length ? selectedAudit.questions : auditTemplate
+  const answered = questions.filter((q) => q.result).length
+  const gaps = questions.filter((q) => q.result === 'gap').length
+  const isLive = !!selectedAudit
+
+  const resultStyles: Record<string, string> = {
+    ok: 'bg-emerald-500 text-white border-emerald-500',
+    gap: 'bg-rose-500 text-white border-rose-500',
+    na: 'bg-slate-400 text-white border-slate-400',
+  }
+  const cardStyles: Record<string, string> = {
+    ok: 'border-emerald-200 bg-emerald-50',
+    gap: 'border-rose-200 bg-rose-50',
+    na: 'border-slate-100 bg-slate-50 opacity-60',
+  }
+
   return (
-    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[420px_1fr]">
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[380px_1fr]">
       <Card padding="md" className="rounded-2xl border-slate-200">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Auditoría energética interna</p>
             <h2 className="text-base font-black text-slate-950">Programa y alcance</h2>
           </div>
-          <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => onOpen('audit')}>Auditoría</Button>
+          <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => onOpen('audit')}>Nueva</Button>
         </div>
-        <div className="space-y-3">
+        <div className="space-y-2">
           {data.audits.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">Crea una auditoría con checklist flexible por alcance, SEUs, medición, objetivos y acciones.</div>
-          ) : data.audits.map((audit) => (
-            <div key={audit.id} className="rounded-xl border border-slate-200 bg-white p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm font-bold text-slate-900">{audit.title}</p>
-                  <p className="mt-1 text-xs text-slate-500">{audit.scope || 'Sin alcance detallado'}</p>
-                </div>
-                <Badge variant={audit.status === 'completed' ? 'ok' : audit.status === 'in_progress' ? 'info' : 'neutral'}>{audit.status}</Badge>
-              </div>
-              <p className="mt-2 text-[11px] text-slate-400">{audit.questions.length} preguntas · plan {audit.planned_date ? formatDate(audit.planned_date) : 'sin fecha'}</p>
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              Crea una auditoría y ejecuta el checklist marcando cada pregunta como OK, GAP o N/A.
             </div>
-          ))}
+          ) : data.audits.map((audit) => {
+            const qs = audit.questions?.length ? audit.questions : []
+            const done = qs.filter((q) => q.result).length
+            const gapCount = qs.filter((q) => q.result === 'gap').length
+            const isSelected = audit.id === (selectedAudit?.id)
+            return (
+              <button
+                key={audit.id}
+                onClick={() => setSelectedAuditId(audit.id)}
+                className={[
+                  'w-full rounded-xl border p-3 text-left transition',
+                  isSelected ? 'border-brand-blue bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300',
+                ].join(' ')}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-bold text-slate-900">{audit.title}</p>
+                  <Badge variant={audit.status === 'completed' ? 'ok' : audit.status === 'in_progress' ? 'info' : 'neutral'} size="sm">
+                    {audit.status === 'planned' ? 'Planificada' : audit.status === 'in_progress' ? 'En progreso' : audit.status === 'completed' ? 'Completada' : audit.status}
+                  </Badge>
+                </div>
+                {qs.length > 0 && (
+                  <div className="mt-2">
+                    <div className="mb-1 flex items-center justify-between text-[11px] text-slate-400">
+                      <span>{done}/{qs.length} respondidas{gapCount > 0 ? ` · ${gapCount} GAPs` : ''}</span>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-slate-200">
+                      <div
+                        className="h-1.5 rounded-full bg-brand-blue transition-all"
+                        style={{ width: `${qs.length ? (done / qs.length) * 100 : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                <p className="mt-1.5 text-[11px] text-slate-400">
+                  Plan: {audit.planned_date ? formatDate(audit.planned_date) : 'sin fecha'}
+                </p>
+              </button>
+            )
+          })}
         </div>
       </Card>
 
       <Card padding="md" className="rounded-2xl border-slate-200">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Checklist auditable</p>
-            <h2 className="text-base font-black text-slate-950">{latestAudit?.title || 'Plantilla sugerida'}</h2>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              {isLive ? 'Checklist ejecutable' : 'Plantilla de referencia'}
+            </p>
+            <h2 className="text-base font-black text-slate-950">{selectedAudit?.title || 'Plantilla sugerida'}</h2>
           </div>
-          <Button size="sm" variant="secondary" leftIcon={<AlertTriangle size={14} />} onClick={() => onOpen('nonconformity')}>Registrar NC</Button>
+          <div className="flex items-center gap-2">
+            {isLive && gaps > 0 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                leftIcon={<AlertTriangle size={13} />}
+                onClick={() => onCreateNcFromAudit(selectedAudit!.title, `${gaps} gap(s) detectado(s) en auditoría`)}
+              >
+                {gaps} GAP{gaps > 1 ? 's' : ''} → NC
+              </Button>
+            )}
+            {!isLive && (
+              <Button size="sm" variant="secondary" leftIcon={<AlertTriangle size={13} />} onClick={() => onOpen('nonconformity')}>
+                Registrar NC
+              </Button>
+            )}
+          </div>
         </div>
+
+        {isLive && (
+          <div className="mb-4 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="flex-1">
+              <div className="h-2 w-full rounded-full bg-slate-200">
+                <div
+                  className="h-2 rounded-full bg-brand-blue transition-all"
+                  style={{ width: `${questions.length ? (answered / questions.length) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+            <span className="shrink-0 text-xs font-bold text-slate-600">{answered}/{questions.length}</span>
+            {gaps > 0 && <span className="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-600">{gaps} GAP</span>}
+            {answered === questions.length && <span className="shrink-0 text-[11px] font-bold text-emerald-600">✓ Completada</span>}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          {(latestAudit?.questions.length ? latestAudit.questions : auditTemplate).map((item, index) => (
-            <div key={`${item.topic}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          {questions.map((item, index) => (
+            <div
+              key={`${item.topic}-${index}`}
+              className={[
+                'rounded-xl border p-3 transition-colors',
+                item.result ? cardStyles[item.result] : 'border-slate-200 bg-slate-50',
+              ].join(' ')}
+            >
               <div className="mb-2 flex items-center justify-between gap-2">
-                <Badge variant="neutral">{item.topic}</Badge>
-                <Badge variant={item.result === 'gap' ? 'warn' : item.result === 'ok' ? 'ok' : 'neutral'}>{item.result || 'pendiente'}</Badge>
+                <Badge variant="neutral" size="sm">{item.topic}</Badge>
+                {isLive ? (
+                  <div className="flex gap-1">
+                    {(['ok', 'gap', 'na'] as const).map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => onUpdateQuestion(selectedAudit!.id, index, r)}
+                        className={[
+                          'rounded-md border px-2 py-0.5 text-[10px] font-black uppercase transition',
+                          item.result === r ? resultStyles[r] : 'border-slate-200 bg-white text-slate-400 hover:border-slate-400',
+                        ].join(' ')}
+                      >
+                        {r === 'ok' ? 'OK' : r === 'gap' ? 'GAP' : 'N/A'}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <Badge variant="neutral" size="sm">plantilla</Badge>
+                )}
               </div>
               <p className="text-sm font-bold leading-5 text-slate-900">{item.question}</p>
-              <p className="mt-2 text-xs leading-5 text-slate-500">{item.evidence}</p>
+              <p className="mt-1.5 text-xs leading-5 text-slate-500">{item.evidence}</p>
+              {isLive && item.result === 'gap' && (
+                <button
+                  onClick={() => onCreateNcFromAudit(selectedAudit!.title, item.question)}
+                  className="mt-2 flex items-center gap-1 text-[11px] font-bold text-rose-600 hover:text-rose-800"
+                >
+                  <AlertTriangle size={11} /> Crear NC desde este GAP
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -582,31 +893,150 @@ function AuditView({ data, onOpen }: { data: SgenData; onOpen: (mode: ModalMode)
   )
 }
 
-function CorrectiveView({ data, onOpen }: { data: SgenData; onOpen: (mode: ModalMode) => void }) {
+function CorrectiveView({ data, onOpen, onAdvanceNc }: { data: SgenData; onOpen: (mode: ModalMode) => void; onAdvanceNc: (id: string, status: string, evidence?: string) => Promise<void> }) {
+  const [closingId, setClosingId] = useState<string | null>(null)
+  const [closingEvidence, setClosingEvidence] = useState('')
+
+  const ncStatusFlow: Record<string, { label: string; next: string; nextLabel: string; color: string }> = {
+    open: { label: 'Abierta', next: 'in_progress', nextLabel: 'Iniciar análisis', color: 'border-amber-200 bg-amber-50' },
+    in_progress: { label: 'En análisis', next: 'resolved', nextLabel: 'Registrar resolución', color: 'border-blue-200 bg-blue-50' },
+    resolved: { label: 'Resuelta', next: 'closed', nextLabel: 'Verificar eficacia y cerrar', color: 'border-purple-200 bg-purple-50' },
+    closed: { label: 'Cerrada', next: '', nextLabel: '', color: 'border-emerald-200 bg-emerald-50' },
+  }
+
+  const open = data.nonconformities.filter((nc) => nc.status !== 'closed')
+  const closed = data.nonconformities.filter((nc) => nc.status === 'closed')
+
   return (
-    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_380px]">
-      <SectionCard title="No conformidades y acciones correctivas" empty="No hay no conformidades registradas." items={data.nonconformities.map((nc) => ({
-        id: nc.id,
-        title: nc.description,
-        meta: `${nc.severity} · ${nc.status}`,
-        detail: nc.corrective_action || nc.probable_cause || 'Sin acción correctiva documentada',
-        badge: nc.due_date ? formatDate(nc.due_date) : 'sin fecha',
-        variant: nc.status === 'closed' ? 'ok' : 'warn',
-      }))} />
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_360px]">
+      <div className="space-y-4">
+        <PanelHeader
+          eyebrow="Correcciones y mejora"
+          title="No conformidades activas"
+          action={<Button size="sm" leftIcon={<Plus size={14} />} onClick={() => onOpen('nonconformity')}>Nueva NC</Button>}
+        />
+
+        {data.nonconformities.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
+            Sin no conformidades registradas. Créalas desde auditorías (botón GAP → NC) o manualmente.
+          </div>
+        ) : (
+          <>
+            {open.map((nc) => {
+              const flow = ncStatusFlow[nc.status] || ncStatusFlow.open
+              const isOverdue = nc.due_date && new Date(nc.due_date) < new Date() && nc.status !== 'closed'
+              const isClosing = closingId === nc.id
+              return (
+                <div key={nc.id} className={`rounded-2xl border p-4 ${flow.color}`}>
+                  <div className="mb-2 flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={nc.severity === 'major' ? 'danger' : nc.severity === 'minor' ? 'warn' : 'neutral'} size="sm">
+                          {nc.severity === 'observation' ? 'Observación' : nc.severity === 'minor' ? 'Menor' : 'Mayor'}
+                        </Badge>
+                        <Badge variant="neutral" size="sm">{flow.label}</Badge>
+                        {nc.source && <span className="text-[11px] text-slate-500">{nc.source}</span>}
+                        {isOverdue && <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-black text-rose-600">VENCIDA</span>}
+                      </div>
+                      <p className="mt-1.5 text-sm font-bold text-slate-900">{nc.description}</p>
+                    </div>
+                    {nc.due_date && (
+                      <span className={`shrink-0 text-[11px] font-semibold ${isOverdue ? 'text-rose-600' : 'text-slate-400'}`}>
+                        {formatDate(nc.due_date)}
+                      </span>
+                    )}
+                  </div>
+
+                  {nc.probable_cause && (
+                    <p className="mb-2 text-xs text-slate-600"><span className="font-bold">Causa: </span>{nc.probable_cause}</p>
+                  )}
+                  {nc.corrective_action && (
+                    <p className="mb-2 text-xs text-slate-600"><span className="font-bold">Acción: </span>{nc.corrective_action}</p>
+                  )}
+
+                  {/* Status transition */}
+                  {nc.status !== 'closed' && !isClosing && (
+                    <Button
+                      size="xs"
+                      variant="secondary"
+                      onClick={() => nc.status === 'resolved' ? setClosingId(nc.id) : onAdvanceNc(nc.id, flow.next)}
+                    >
+                      {flow.nextLabel}
+                    </Button>
+                  )}
+
+                  {/* Close with effectiveness evidence */}
+                  {isClosing && (
+                    <div className="mt-2 space-y-2">
+                      <p className="text-[11px] font-bold text-slate-500">Evidencia de verificación de eficacia:</p>
+                      <textarea
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-brand-blue"
+                        rows={3}
+                        placeholder="Describe cómo se verificó que la causa fue eliminada, no solo corregida temporalmente."
+                        value={closingEvidence}
+                        onChange={(e) => setClosingEvidence(e.target.value)}
+                      />
+                      <div className="flex gap-2">
+                        <Button size="xs" disabled={!closingEvidence.trim()} onClick={() => { onAdvanceNc(nc.id, 'closed', closingEvidence); setClosingId(null); setClosingEvidence('') }}>
+                          Cerrar NC
+                        </Button>
+                        <Button size="xs" variant="ghost" onClick={() => { setClosingId(null); setClosingEvidence('') }}>Cancelar</Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {nc.verification_of_effectiveness && nc.status === 'closed' && (
+                    <p className="mt-2 text-xs text-slate-500"><span className="font-bold">Verificación: </span>{nc.verification_of_effectiveness}</p>
+                  )}
+                </div>
+              )
+            })}
+
+            {closed.length > 0 && (
+              <details className="rounded-2xl border border-slate-100">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-slate-500">
+                  {closed.length} no conformidad(es) cerrada(s)
+                </summary>
+                <div className="space-y-2 border-t border-slate-100 p-4">
+                  {closed.map((nc) => (
+                    <div key={nc.id} className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2">
+                      <p className="text-xs font-bold text-slate-700">{nc.description}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-400">{nc.source || '—'} · cerrada</p>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </>
+        )}
+      </div>
+
       <Card padding="md" className="rounded-2xl border-slate-200">
         <div className="mb-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Mecanismo de corrección</p>
-          <h3 className="text-base font-black text-slate-950">De hallazgo a eficacia</h3>
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ciclo de corrección</p>
+          <h3 className="text-sm font-black text-slate-950">De hallazgo a cierre verificado</h3>
         </div>
-        <div className="space-y-3">
-          {['Registrar desviación o hallazgo', 'Analizar causa probable', 'Definir acción correctiva con responsable', 'Llevarla a Acciones / Proyectos', 'Verificar eficacia con evidencia'].map((step, index) => (
+        <div className="space-y-2">
+          {[
+            { step: 1, label: 'Registrar desviación', sub: 'Fuente, severidad, descripción' },
+            { step: 2, label: 'Analizar causa probable', sub: 'Raíz, no solo síntoma' },
+            { step: 3, label: 'Definir acción correctiva', sub: 'Responsable y fecha compromiso' },
+            { step: 4, label: 'Llevar a Acciones/Proyectos', sub: 'Trazable, no duplicada' },
+            { step: 5, label: 'Verificar eficacia', sub: 'Evidencia de que la causa se eliminó' },
+            { step: 6, label: 'Cerrar con evidencia', sub: 'Solo cuando la causa no puede repetirse' },
+          ].map(({ step, label, sub }) => (
             <div key={step} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
-              <div className="grid h-7 w-7 place-items-center rounded-lg bg-slate-950 text-xs font-black text-white">{index + 1}</div>
-              <p className="text-sm font-semibold text-slate-700">{step}</p>
+              <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-slate-950 text-xs font-black text-white">{step}</div>
+              <div>
+                <p className="text-sm font-semibold text-slate-700">{label}</p>
+                <p className="text-[11px] text-slate-400">{sub}</p>
+              </div>
             </div>
           ))}
         </div>
-        <Button className="mt-4 w-full" leftIcon={<AlertTriangle size={14} />} onClick={() => onOpen('nonconformity')}>Nueva no conformidad</Button>
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+          <strong>Cierre requiere evidencia.</strong> Documenta cómo verificaste que la causa no volverá a ocurrir antes de marcar la NC como cerrada.
+        </div>
       </Card>
     </div>
   )
@@ -643,12 +1073,14 @@ function SgenModal({
   mode,
   siteId,
   data,
+  ncPrefill,
   onClose,
   onSaved,
 }: {
   mode: ModalMode
   siteId: string | null
   data: SgenData
+  ncPrefill: { source?: string; description?: string } | null
   onClose: () => void
   onSaved: () => void
 }) {
@@ -668,7 +1100,7 @@ function SgenModal({
       {mode === 'seu' && <SeuForm siteId={siteId} enpis={data.enpis} measurementPoints={data.measurementPoints} onSaved={onSaved} onCancel={onClose} />}
       {mode === 'objective' && <ObjectiveForm siteId={siteId} enpis={data.enpis} objectives={data.objectives} onSaved={onSaved} onCancel={onClose} />}
       {mode === 'audit' && <AuditForm siteId={siteId} onSaved={onSaved} onCancel={onClose} />}
-      {mode === 'nonconformity' && <NonconformityForm siteId={siteId} enpis={data.enpis} onSaved={onSaved} onCancel={onClose} />}
+      {mode === 'nonconformity' && <NonconformityForm siteId={siteId} enpis={data.enpis} prefill={ncPrefill} onSaved={onSaved} onCancel={onClose} />}
       {mode === 'evidence' && <EvidenceForm siteId={siteId} data={data} onSaved={onSaved} onCancel={onClose} />}
     </Modal>
   )
@@ -731,6 +1163,10 @@ function SeuForm({ siteId, enpis, measurementPoints, onSaved, onCancel }: { site
     cost_value: '',
     significance_score: '70',
     significance_rationale: '',
+    operational_criteria: '',
+    relevant_variables: '',
+    maintenance_criteria: '',
+    review_frequency: 'annual',
   })
   const set = (partial: Partial<typeof form>) => setForm({ ...form, ...partial })
   const filteredPoints = measurementPoints.filter((point) => point.utility === form.utility)
@@ -746,6 +1182,12 @@ function SeuForm({ siteId, enpis, measurementPoints, onSaved, onCancel }: { site
       cost_value: form.cost_value ? Number(form.cost_value) : null,
       significance_score: Number(form.significance_score || 0),
       significance_rationale: form.significance_rationale,
+      operational_criteria: form.operational_criteria || null,
+      relevant_variables: form.relevant_variables
+        ? form.relevant_variables.split(',').map((v) => v.trim()).filter(Boolean)
+        : [],
+      maintenance_criteria: form.maintenance_criteria || null,
+      review_frequency: form.review_frequency,
       status: 'active',
       content_origin: 'user_original',
     })
@@ -761,8 +1203,46 @@ function SeuForm({ siteId, enpis, measurementPoints, onSaved, onCancel }: { site
         <Field label="Medidores vinculados" className="sm:col-span-2"><select className={inputClass} multiple value={form.measurement_point_ids} onChange={(e) => set({ measurement_point_ids: Array.from(e.target.selectedOptions).map((option) => option.value) })}>{filteredPoints.map((point) => <option key={point.id} value={point.id}>{point.tag} · {point.name} · {point.unit}</option>)}</select></Field>
         <Field label="Consumo del periodo"><input className={inputClass} type="number" step="any" value={form.consumption_value} onChange={(e) => set({ consumption_value: e.target.value })} /></Field>
         <Field label="Costo del periodo"><input className={inputClass} type="number" step="any" value={form.cost_value} onChange={(e) => set({ cost_value: e.target.value })} /></Field>
-        <Field label="Score de significancia"><input className={inputClass} type="number" min="0" max="100" value={form.significance_score} onChange={(e) => set({ significance_score: e.target.value })} /></Field>
-        <Field label="Criterio de significancia" className="sm:col-span-2"><textarea className={`${inputClass} min-h-[96px] resize-none`} value={form.significance_rationale} onChange={(e) => set({ significance_rationale: e.target.value })} placeholder="Explica consumo, costo, variabilidad, oportunidad de mejora, criticidad operacional y datos disponibles." /></Field>
+        <Field label="Score de significancia (0–100)"><input className={inputClass} type="number" min="0" max="100" value={form.significance_score} onChange={(e) => set({ significance_score: e.target.value })} /></Field>
+        <Field label="Frecuencia de revisión">
+          <select className={inputClass} value={form.review_frequency} onChange={(e) => set({ review_frequency: e.target.value })}>
+            <option value="monthly">Mensual</option>
+            <option value="quarterly">Trimestral</option>
+            <option value="semiannual">Semestral</option>
+            <option value="annual">Anual</option>
+          </select>
+        </Field>
+        <Field label="Criterio de significancia" className="sm:col-span-2"><textarea className={`${inputClass} min-h-[80px] resize-none`} value={form.significance_rationale} onChange={(e) => set({ significance_rationale: e.target.value })} placeholder="Explica consumo, costo, variabilidad, oportunidad de mejora, criticidad operacional y datos disponibles." /></Field>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Control operacional</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Criterios de operación" className="sm:col-span-2">
+            <textarea
+              className={`${inputClass} min-h-[80px] resize-none`}
+              value={form.operational_criteria}
+              onChange={(e) => set({ operational_criteria: e.target.value })}
+              placeholder="Setpoints, rangos normales de operación, límites de alarma y condiciones de parada. Ej: Presión vapor 8–10 bar, temperatura 180–200 °C, factor de potencia > 0.92."
+            />
+          </Field>
+          <Field label="Variables relevantes (separadas por coma)">
+            <input
+              className={inputClass}
+              value={form.relevant_variables}
+              onChange={(e) => set({ relevant_variables: e.target.value })}
+              placeholder="Tasa de producción, temperatura exterior, turno, % carga..."
+            />
+          </Field>
+          <Field label="Criterios de mantenimiento">
+            <textarea
+              className={`${inputClass} min-h-[72px] resize-none`}
+              value={form.maintenance_criteria}
+              onChange={(e) => set({ maintenance_criteria: e.target.value })}
+              placeholder="Frecuencia de mantenimiento preventivo, calibración, limpieza e inspección que afectan el desempeño energético."
+            />
+          </Field>
+        </div>
       </div>
     </FormShell>
   )
@@ -837,20 +1317,53 @@ function ObjectiveForm({ siteId, enpis, objectives, onSaved, onCancel }: { siteI
 }
 
 function AuditForm({ siteId, onSaved, onCancel }: { siteId: string; onSaved: () => void; onCancel: () => void }) {
+  const topics = [...new Set(AUDIT_CATALOG.map((q) => q.topic))]
   const [form, setForm] = useState({
     title: `Auditoría interna SGEn ${new Date().getFullYear()}`,
-    scope: 'Revisión de alcance, revisión energética, SEUs, EnPIs, objetivos, medición, acciones, evidencias y correcciones.',
+    scope: '',
     planned_date: '',
+    lead_auditor: '',
   })
-  const set = (partial: Partial<typeof form>) => setForm({ ...form, ...partial })
+  const [selectedIndexes, setSelectedIndexes] = useState<Set<number>>(
+    new Set(AUDIT_CATALOG.map((_, i) => i))
+  )
+  const [customQuestions, setCustomQuestions] = useState<AuditQuestion[]>([])
+  const [showCatalog, setShowCatalog] = useState(false)
+
+  function toggleQuestion(index: number) {
+    const next = new Set(selectedIndexes)
+    if (next.has(index)) next.delete(index)
+    else next.add(index)
+    setSelectedIndexes(next)
+  }
+
+  function toggleTopic(topic: string) {
+    const topicIndexes = AUDIT_CATALOG.map((q, i) => ({ q, i })).filter(({ q }) => q.topic === topic).map(({ i }) => i)
+    const allSelected = topicIndexes.every((i) => selectedIndexes.has(i))
+    const next = new Set(selectedIndexes)
+    topicIndexes.forEach((i) => allSelected ? next.delete(i) : next.add(i))
+    setSelectedIndexes(next)
+  }
+
+  function addCustom() {
+    setCustomQuestions([...customQuestions, { topic: 'Personalizada', question: '', evidence: '' }])
+  }
+
+  function updateCustom(index: number, field: keyof AuditQuestion, value: string) {
+    setCustomQuestions(customQuestions.map((q, i) => i === index ? { ...q, [field]: value } : q))
+  }
+
+  const selectedCount = selectedIndexes.size + customQuestions.filter((q) => q.question.trim()).length
 
   async function save() {
+    const fromCatalog = AUDIT_CATALOG.filter((_, i) => selectedIndexes.has(i))
+    const custom = customQuestions.filter((q) => q.question.trim())
     await supabase.from('sgen_audits').insert({
       site_id: siteId,
       title: form.title,
-      scope: form.scope,
+      scope: form.scope || null,
       planned_date: form.planned_date || null,
-      questions: auditTemplate,
+      questions: [...fromCatalog, ...custom],
       status: 'planned',
       content_origin: 'app_original',
     })
@@ -858,21 +1371,126 @@ function AuditForm({ siteId, onSaved, onCancel }: { siteId: string; onSaved: () 
   }
 
   return (
-    <FormShell onCancel={onCancel} onSave={save} disabled={!form.title} saveLabel="Crear auditoría">
-      <div className="space-y-3">
-        <Field label="Título" required><input className={inputClass} value={form.title} onChange={(e) => set({ title: e.target.value })} /></Field>
-        <Field label="Alcance de auditoría"><textarea className={`${inputClass} min-h-[92px] resize-none`} value={form.scope} onChange={(e) => set({ scope: e.target.value })} /></Field>
-        <Field label="Fecha planificada"><input className={inputClass} type="date" value={form.planned_date} onChange={(e) => set({ planned_date: e.target.value })} /></Field>
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-500">Se cargará una plantilla original y editable de {auditTemplate.length} preguntas, orientada a evidencia objetiva y mecanismos del SGEn.</div>
+    <FormShell onCancel={onCancel} onSave={save} disabled={!form.title} saveLabel={`Crear auditoría (${selectedCount} preguntas)`}>
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Título" required className="sm:col-span-2">
+            <input className={inputClass} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          </Field>
+          <Field label="Fecha planificada">
+            <input className={inputClass} type="date" value={form.planned_date} onChange={(e) => setForm({ ...form, planned_date: e.target.value })} />
+          </Field>
+          <Field label="Auditor líder">
+            <input className={inputClass} value={form.lead_auditor} onChange={(e) => setForm({ ...form, lead_auditor: e.target.value })} placeholder="Nombre del auditor responsable" />
+          </Field>
+          <Field label="Alcance de la auditoría" className="sm:col-span-2">
+            <textarea className={`${inputClass} min-h-[70px] resize-none`} value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value })} placeholder="Áreas, sistemas, procesos y periodos incluidos en esta auditoría." />
+          </Field>
+        </div>
+
+        {/* Catalog selector */}
+        <div className="rounded-xl border border-slate-200">
+          <button
+            type="button"
+            onClick={() => setShowCatalog(!showCatalog)}
+            className="flex w-full items-center justify-between rounded-xl px-4 py-3 text-left"
+          >
+            <div>
+              <span className="text-sm font-bold text-slate-900">Catálogo de preguntas</span>
+              <span className="ml-2 rounded-full bg-brand-blue/10 px-2 py-0.5 text-[11px] font-black text-brand-blue">{selectedIndexes.size} seleccionadas</span>
+            </div>
+            {showCatalog ? <ChevronUp size={15} className="text-slate-400" /> : <ChevronDown size={15} className="text-slate-400" />}
+          </button>
+
+          {showCatalog && (
+            <div className="border-t border-slate-200 p-4 space-y-5 max-h-[400px] overflow-y-auto">
+              {topics.map((topic) => {
+                const topicIndexes = AUDIT_CATALOG.map((q, i) => ({ q, i })).filter(({ q }) => q.topic === topic).map(({ i }) => i)
+                const allSelected = topicIndexes.every((i) => selectedIndexes.has(i))
+                return (
+                  <div key={topic}>
+                    <div className="mb-2 flex items-center gap-2">
+                      <input type="checkbox" checked={allSelected} onChange={() => toggleTopic(topic)} className="rounded" />
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">{topic}</span>
+                    </div>
+                    <div className="space-y-2 pl-5">
+                      {AUDIT_CATALOG.map((q, i) => q.topic !== topic ? null : (
+                        <label key={i} className={`flex items-start gap-2 rounded-lg p-2 cursor-pointer ${selectedIndexes.has(i) ? 'bg-slate-50' : 'opacity-50'}`}>
+                          <input type="checkbox" checked={selectedIndexes.has(i)} onChange={() => toggleQuestion(i)} className="mt-0.5 shrink-0 rounded" />
+                          <div>
+                            <p className="text-xs font-semibold text-slate-800">{q.question}</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">{q.evidence}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Custom questions */}
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">Preguntas personalizadas</span>
+            <Button size="xs" variant="secondary" leftIcon={<Plus size={12} />} onClick={addCustom}>Agregar</Button>
+          </div>
+          {customQuestions.length === 0 && (
+            <p className="text-xs text-slate-400">Agrega preguntas específicas para este proceso o área.</p>
+          )}
+          <div className="space-y-2">
+            {customQuestions.map((q, i) => (
+              <div key={i} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="grid grid-cols-[1fr_auto] gap-2 mb-2">
+                  <input
+                    className={inputClass}
+                    placeholder="Tema (ej: Compresor de aire, Turno nocturno...)"
+                    value={q.topic}
+                    onChange={(e) => updateCustom(i, 'topic', e.target.value)}
+                  />
+                  <button onClick={() => setCustomQuestions(customQuestions.filter((_, idx) => idx !== i))} className="grid place-items-center rounded-lg border border-slate-200 p-2 text-slate-400 hover:text-rose-500">
+                    <X size={13} />
+                  </button>
+                </div>
+                <input
+                  className={`${inputClass} mb-2`}
+                  placeholder="¿Qué se quiere verificar?"
+                  value={q.question}
+                  onChange={(e) => updateCustom(i, 'question', e.target.value)}
+                />
+                <input
+                  className={inputClass}
+                  placeholder="¿Qué evidencia lo demuestra?"
+                  value={q.evidence}
+                  onChange={(e) => updateCustom(i, 'evidence', e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </FormShell>
   )
 }
 
-function NonconformityForm({ siteId, enpis, onSaved, onCancel }: { siteId: string; enpis: Enpi[]; onSaved: () => void; onCancel: () => void }) {
+function NonconformityForm({
+  siteId,
+  enpis,
+  prefill,
+  onSaved,
+  onCancel,
+}: {
+  siteId: string
+  enpis: Enpi[]
+  prefill?: { source?: string; description?: string } | null
+  onSaved: () => void
+  onCancel: () => void
+}) {
   const [form, setForm] = useState({
-    source: 'auditoría interna',
-    description: '',
+    source: prefill?.source || 'auditoría interna',
+    description: prefill?.description || '',
     severity: 'minor',
     probable_cause: '',
     corrective_action: '',
@@ -981,10 +1599,13 @@ function EvidenceForm({ siteId, data, onSaved, onCancel }: { siteId: string; dat
   )
 }
 
-function SectionCard({ title, empty, items }: { title: string; empty: string; items: Array<{ id: string; title: string; meta: string; detail: string; badge: string; variant?: Parameters<typeof Badge>[0]['variant'] }> }) {
+function SectionCard({ title, empty, items, action }: { title: string; empty: string; items: Array<{ id: string; title: string; meta: string; detail: string; badge: string; variant?: Parameters<typeof Badge>[0]['variant'] }>; action?: ReactNode }) {
   return (
     <Card padding="md" className="rounded-2xl border-slate-200">
-      <h3 className="mb-4 text-sm font-black text-slate-950">{title}</h3>
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-black text-slate-950">{title}</h3>
+        {action}
+      </div>
       {items.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">{empty}</div>
       ) : (
@@ -1019,15 +1640,15 @@ function PanelHeader({ eyebrow, title, action }: { eyebrow: string; title: strin
   )
 }
 
-function ActionLauncher({ icon, title, detail, onClick }: { icon: ReactNode; title: string; detail: string; onClick: () => void }) {
+function ActionLauncher({ icon, title, detail, onClick, external = false }: { icon: ReactNode; title: string; detail: string; onClick: () => void; external?: boolean }) {
   return (
     <button onClick={onClick} className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-brand-blue hover:bg-blue-50">
-      <div className="grid h-9 w-9 place-items-center rounded-lg bg-slate-950 text-white">{icon}</div>
+      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-950 text-white">{icon}</div>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-bold text-slate-900">{title}</p>
         <p className="text-xs text-slate-500">{detail}</p>
       </div>
-      <ArrowRight size={14} className="text-slate-400" />
+      {external ? <ExternalLink size={13} className="shrink-0 text-slate-400" /> : <ArrowRight size={14} className="shrink-0 text-slate-400" />}
     </button>
   )
 }
@@ -1066,8 +1687,10 @@ function Field({ label, children, required, className = '' }: { label: string; c
 const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/15'
 
 function calculateMaturity(data: SgenData) {
-  const items: Array<{ label: string; done: boolean; action: ModalMode }> = [
-    { label: 'Alcance aprobado y vigente', done: true, action: 'review' },
+  const items: Array<{ label: string; done: boolean; action: ModalMode; tab?: WorkspaceTab }> = [
+    { label: 'Alcance aprobado y vigente', done: data.scopeApprovedCount > 0, action: null, tab: 'scope' },
+    { label: 'Política energética vigente', done: data.policyActiveCount > 0, action: null, tab: 'policy' },
+    { label: 'Riesgos y oportunidades registrados', done: data.riskCount > 0, action: null, tab: 'risks' },
     { label: 'Revisión energética documentada', done: data.reviews.length > 0, action: 'review' },
     { label: 'SEUs definidos con medición', done: data.seus.length > 0, action: 'seu' },
     { label: 'Objetivos vinculados a EnPIs', done: data.objectives.some((item) => item.enpi_id), action: 'objective' },
@@ -1075,6 +1698,7 @@ function calculateMaturity(data: SgenData) {
     { label: 'Auditoría interna planificada', done: data.audits.length > 0, action: 'audit' },
     { label: 'Evidencia documentada', done: data.evidence.length > 0, action: 'evidence' },
     { label: 'Correcciones gestionadas', done: data.nonconformities.length === 0 || data.nonconformities.some((item) => item.corrective_action), action: 'nonconformity' },
+    { label: 'Revisión directiva documentada', done: data.mgmtReviewCount > 0, action: null, tab: 'direction' },
   ]
   return {
     items,
