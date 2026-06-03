@@ -36,7 +36,7 @@ interface LinkedMP {
   last_reading_at: string | null
 }
 
-type NodeTab = 'props' | 'measurement' | 'specs' | 'actions'
+type NodeTab = 'props' | 'measurement' | 'specs' | 'actions' | 'supplier'
 type EdgeTab = 'connection' | 'params' | 'actions'
 
 interface InspectorPanelProps {
@@ -180,11 +180,13 @@ function NodeInspector({ node, onUpdate, onRemove }: {
   onRemove: () => void
 }) {
   const d = node.data
-  const [tab, setTab] = useState<NodeTab>('props')
+  const isSource = d.nodeType === 'utility_source'
+  const [tab, setTab] = useState<NodeTab>(isSource ? 'supplier' : 'props')
 
   const tabs: { id: NodeTab; label: string; icon: typeof Info }[] = [
+    ...(isSource ? [{ id: 'supplier' as NodeTab, label: 'Suministrador', icon: Info }] : []),
     { id: 'props',       label: 'Propiedades', icon: Info },
-    { id: 'measurement', label: 'Medición',    icon: Activity },
+    { id: 'measurement', label: isSource ? 'Medidores' : 'Medición', icon: Activity },
     { id: 'specs',       label: 'Specs',        icon: Settings },
     { id: 'actions',     label: 'Acciones',     icon: Wrench },
   ]
@@ -199,12 +201,12 @@ function NodeInspector({ node, onUpdate, onRemove }: {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-100 bg-white">
+      <div className="flex border-b border-gray-100 bg-white overflow-x-auto">
         {tabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
-            className={`flex-1 flex flex-col items-center py-2 gap-0.5 text-[10px] font-medium transition-colors cursor-pointer border-b-2 ${
+            className={`flex-1 flex flex-col items-center py-2 gap-0.5 text-[10px] font-medium transition-colors cursor-pointer border-b-2 min-w-[60px] ${
               tab === id
                 ? 'text-[#1B6FF8] border-[#1B6FF8]'
                 : 'text-gray-400 border-transparent hover:text-gray-600'
@@ -226,6 +228,7 @@ function NodeInspector({ node, onUpdate, onRemove }: {
           transition={{ duration: 0.12 }}
           className="p-4 space-y-3"
         >
+          {tab === 'supplier' && <SupplierTab node={node} onUpdate={onUpdate} />}
           {tab === 'props' && <PropsTab node={node} onUpdate={onUpdate} />}
           {tab === 'measurement' && <MeasurementTab node={node} onUpdate={onUpdate} />}
           {tab === 'specs' && <SpecsTab node={node} />}
@@ -235,6 +238,65 @@ function NodeInspector({ node, onUpdate, onRemove }: {
     </div>
   )
 }
+
+// ── Supplier Tab (utility_source only) ───────────────────────────────────────
+
+function SupplierTab({ node, onUpdate }: { node: Node<DiagramNodeData>; onUpdate: (id: string, data: Partial<DiagramNodeData>) => void }) {
+  const d = node.data
+  const properties = d.properties || {}
+
+  const supplierName = (properties.supplier_name as string) || ''
+  const accountNumber = (properties.account_number as string) || ''
+  const tariff = (properties.tariff as string) || ''
+  const contractedCapacity = (properties.contracted_capacity as string) || ''
+
+  const updateProp = (key: string, value: string) => {
+    onUpdate(node.id, { properties: { ...properties, [key]: value } })
+  }
+
+  return (
+    <>
+      <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-2">
+        <p className="text-[10px] font-semibold text-blue-700 uppercase tracking-wider mb-1">Fuente de suministro</p>
+        <p className="text-[11px] text-blue-600 leading-relaxed">
+          Este nodo representa un proveedor externo de utility. Sus medidores son medidores de frontera y se usan como input en el balance energético.
+        </p>
+      </div>
+
+      <InspectorField
+        label="Nombre del suministrador"
+        value={supplierName}
+        onChange={(v) => updateProp('supplier_name', v)}
+        placeholder="ej: CFE, Gas Natural Fenosa, PEMEX Gas"
+      />
+      <InspectorField
+        label="N° de cuenta / contrato"
+        value={accountNumber}
+        onChange={(v) => updateProp('account_number', v)}
+        placeholder="ej: 1234-5678-9"
+      />
+      <InspectorField
+        label="Tarifa"
+        value={tariff}
+        onChange={(v) => updateProp('tariff', v)}
+        placeholder="ej: GDMTH, PDBT, Industrial"
+      />
+      <InspectorField
+        label="Capacidad contratada"
+        value={contractedCapacity}
+        onChange={(v) => updateProp('contracted_capacity', v)}
+        placeholder="ej: 500 kW, 1000 Nm³/h"
+      />
+
+      <div className="pt-1 border-t border-gray-100">
+        <p className="text-[10px] text-gray-400 leading-relaxed">
+          Para agregar medidores de frontera a esta fuente, ve al tab <strong>Medidores</strong> o configura MPs en Equipos → Medidores y vincula el activo.
+        </p>
+      </div>
+    </>
+  )
+}
+
 
 // ── Props Tab ────────────────────────────────────────────────────────────────
 
@@ -1038,8 +1100,8 @@ function EdgeInspector({ edge, onUpdate, onRemove }: {
 
 // ── Field helpers ─────────────────────────────────────────────────────────────
 
-function InspectorField({ label, value, onChange, type = 'text' }: {
-  label: string; value: string; onChange: (v: string) => void; type?: string
+function InspectorField({ label, value, onChange, type = 'text', placeholder }: {
+  label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string
 }) {
   return (
     <div>
@@ -1048,7 +1110,8 @@ function InspectorField({ label, value, onChange, type = 'text' }: {
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#1B6FF8]/20 focus:border-[#1B6FF8]/40 bg-white transition-shadow"
+        placeholder={placeholder}
+        className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#1B6FF8]/20 focus:border-[#1B6FF8]/40 bg-white transition-shadow placeholder:text-gray-300"
       />
     </div>
   )

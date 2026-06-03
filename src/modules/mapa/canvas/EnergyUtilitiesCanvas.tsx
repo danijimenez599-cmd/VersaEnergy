@@ -214,29 +214,23 @@ export function EnergyUtilitiesCanvas() {
 
       const flowPos = snapScreenToFlow({ x: e.clientX, y: e.clientY })
 
-      // 3a — Snap para medidores ────────────────────────────────────────────────
-      if (family === 'measurement' && selectedSiteId) {
-        const closest = findClosestPhysicalEdge(flowPos)
-        let position = flowPos
-        let snapAnchor: Record<string, unknown> | undefined
-
-        if (closest) {
-          const src = nodes.find((n) => n.id === closest.source)!
-          const tgt = nodes.find((n) => n.id === closest.target)!
-          position = {
-            x: (src.position.x + tgt.position.x) / 2 - 26,  // centrar burbuja (52px/2)
-            y: (src.position.y + tgt.position.y) / 2 - 82,  // encima de la línea
-          }
-          snapAnchor = {
-            type: 'edge',
-            id: closest.id,
-            position: 0.5,
-            side: 'line',
-            offset: { x: 0, y: -55 },
-          }
+      // ── Bloquear medidores standalone ────────────────────────────────────────
+      // Los medidores ya no son nodos del canvas. Son MPs (MeasurementPoints)
+      // que se configuran en el inspector del equipo o de la Fuente Utility.
+      if (family === 'measurement' || METER_NODE_TYPES.has(nodeType)) {
+        // Mostrar toast de orientación (reutilizamos window.alert como fallback
+        // hasta que el ToastContext esté disponible en este scope)
+        const msg =
+          'Los medidores no se colocan en el canvas.\n\n' +
+          '• Para medidores de equipo: selecciona el equipo → Inspector → Medidores.\n' +
+          '• Para medidores de frontera: arrastra una "Fuente Utility" → Inspector → Medidores.'
+        // Intentar usar toast si está disponible, sino alert
+        if (typeof window !== 'undefined') {
+          // Disparar evento custom que el ToastProvider puede escuchar
+          window.dispatchEvent(new CustomEvent('versa:toast', {
+            detail: { message: msg, type: 'info', duration: 6000 },
+          }))
         }
-
-        setPendingNode({ nodeType, family, position, snapAnchor })
         return
       }
 

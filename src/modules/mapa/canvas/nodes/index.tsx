@@ -519,43 +519,104 @@ function SpecialNode({ data }: NProps) {
   const utility = (data.utility as string) || ''
   const srcColors = UTILITY_SOURCE_COLORS[utility]
 
-  // Prominent utility_source design (C-03)
+  // MPs del utility_source (se comporta como EquipmentNode para medidores de frontera)
+  const getMPs = useEquipmentMPs((s) => s.getMPs)
+  const properties = data.properties || {}
+  const assetBinding = properties.asset_binding as Record<string, unknown> | undefined
+  const sourceEntityId = isSource && assetBinding?.status === 'linked' && assetBinding?.entity_type === 'equipment'
+    ? (assetBinding.entity_id as string)
+    : null
+  // También soportar binding directo de nodo a MPs via node_id (cuando no hay entity_id)
+  const sourceMPs = sourceEntityId ? getMPs(sourceEntityId) : []
+  const supplierName = (properties.supplier_name as string) || null
+
+  // Prominent utility_source design (SCADA-6: con MPs inline)
   if (isSource && srcColors) {
-    const spec = getPrimarySpec(data)
     return (
       <div
-        className="rounded-2xl border-2 shadow-[0_2px_12px_rgba(0,0,0,0.10)] min-w-[160px]"
+        className="rounded-2xl border-2 shadow-[0_2px_12px_rgba(0,0,0,0.10)] min-w-[176px]"
         style={{ borderColor: srcColors.border, background: srcColors.bg }}
       >
-        {/* Header with utility color */}
+        {/* Header */}
         <div
           className="flex items-center gap-1.5 px-3 py-2 rounded-t-[14px] text-[10px] font-bold text-white"
           style={{ backgroundColor: srcColors.header }}
         >
           <Power size={12} />
-          <span className="uppercase tracking-wider">Fuente</span>
+          <span className="uppercase tracking-wider flex-1">Fuente · {UTILITY_LABELS[utility] || utility}</span>
+          {/* Badge: boundary meter count */}
+          {sourceMPs.length > 0 && (
+            <span
+              className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
+              style={{ background: 'rgba(255,255,255,0.25)' }}
+              title={`${sourceMPs.length} medidor(es) de frontera`}
+            >
+              {sourceMPs.length}m
+            </span>
+          )}
         </div>
-        <div className="px-3 py-2.5">
+        <div className="px-3 py-2">
           <p className="text-[13px] font-bold leading-tight" style={{ color: srcColors.text }}>
             {data.label || 'Fuente de suministro'}
           </p>
-          {data.tag && (
-            <p className="text-[10px] font-mono opacity-60 mt-0.5" style={{ color: srcColors.text }}>{data.tag}</p>
-          )}
-          {spec && (
-            <div
-              className="mt-2 px-2 py-1 rounded-lg text-[11px] font-bold"
-              style={{ backgroundColor: srcColors.header + '20', color: srcColors.header }}
-            >
-              {spec}
-            </div>
-          )}
-          {utility && (
-            <p className="text-[10px] mt-1.5 opacity-50" style={{ color: srcColors.text }}>
-              {UTILITY_LABELS[utility] || utility}
+          {/* Supplier name (CFE, Empresa Gas, etc.) */}
+          {supplierName && (
+            <p className="text-[10px] mt-0.5 opacity-70 italic" style={{ color: srcColors.text }}>
+              {supplierName}
             </p>
           )}
+          {data.tag && (
+            <p className="text-[10px] font-mono opacity-50 mt-0.5" style={{ color: srcColors.text }}>{data.tag}</p>
+          )}
         </div>
+
+        {/* MPs inline — boundary meters */}
+        {sourceMPs.length > 0 && (
+          <div
+            className="border-t px-2 py-1.5 space-y-1"
+            style={{ borderColor: srcColors.border + '80' }}
+          >
+            {sourceMPs.slice(0, 4).map((mp) => (
+              <div key={mp.id} className="flex items-center gap-1" title={`${mp.tag} · ${mp.name}`}>
+                <span className="text-[9px] leading-none shrink-0">
+                  {SOURCE_TYPE_ICONS[mp.source_type] || '·'}
+                </span>
+                <span className="text-[10px] font-mono font-semibold shrink-0 w-[46px] truncate" style={{ color: srcColors.text }}>
+                  {mp.tag}
+                </span>
+                <span className="flex-1 text-[10px] text-right truncate opacity-70" style={{ color: srcColors.text }}>
+                  {mp.value != null
+                    ? `${Number(mp.value).toLocaleString('es-MX', { maximumFractionDigits: 1 })} ${mp.unit}`
+                    : <span className="opacity-30 italic">—</span>
+                  }
+                </span>
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0 ml-1"
+                  style={{ backgroundColor: QUALITY_COLORS[mp.quality] }}
+                  title={mp.quality}
+                />
+              </div>
+            ))}
+            {sourceMPs.length > 4 && (
+              <p className="text-[9px] opacity-40 text-right pr-0.5" style={{ color: srcColors.text }}>
+                +{sourceMPs.length - 4} más
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Hint when no MPs configured */}
+        {sourceMPs.length === 0 && (
+          <div
+            className="border-t px-3 py-1.5"
+            style={{ borderColor: srcColors.border + '80' }}
+          >
+            <p className="text-[9px] opacity-40 italic" style={{ color: srcColors.text }}>
+              Sin medidores — configura en Inspector
+            </p>
+          </div>
+        )}
+
         <Handle id="s-right"  type="source" position={Position.Right}  style={{ background: srcColors.header, width: 12, height: 12, border: '2px solid white' }} />
         <Handle id="s-bottom" type="source" position={Position.Bottom} style={{ background: srcColors.header, width: 10, height: 10, border: '2px solid white' }} />
       </div>

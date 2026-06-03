@@ -157,24 +157,11 @@ export const ALL_PALETTE_GROUPS: PaletteGroup[] = [
       { type: 'check_valve',   label: 'Válv. Check',  family: 'control', icon: ArrowRightLeft,description: 'Válvula check/antirretorno' },
     ],
   },
-  {
-    family: 'measurement',
-    label: 'Medición',
-    color: 'border-l-purple-500',
-    headerColor: 'bg-purple-500',
-    items: [
-      { type: 'flow_meter',         label: 'Caudalímetro',    family: 'measurement', icon: Gauge,       description: 'Medidor standalone de caudal — para entradas al sitio sin equipo padre' },
-      { type: 'energy_meter',       label: 'Med. Energía',    family: 'measurement', icon: Zap,         description: 'Medidor standalone de energía (kWh) — ej: medidor CFE de entrada' },
-      { type: 'power_meter',        label: 'Power Meter',     family: 'measurement', icon: Activity,    description: 'Medidor standalone de potencia (kW) — los de proceso van en su equipo' },
-      { type: 'pressure_sensor',    label: 'Sensor Presión',  family: 'measurement', icon: BarChart2,   description: 'Sensor standalone de presión — los de proceso van en su equipo' },
-      { type: 'temperature_sensor', label: 'Sensor Temp.',    family: 'measurement', icon: ThermoIcon,  description: 'Sensor standalone de temperatura — los de proceso van en su equipo' },
-      { type: 'level_sensor',       label: 'Sensor Nivel',    family: 'measurement', icon: Gauge,       description: 'Sensor standalone de nivel' },
-      { type: 'current_transformer',label: 'TC',              family: 'measurement', icon: Bolt,        description: 'TC standalone — los de proceso van en su tablero/equipo' },
-      { type: 'gas_meter',          label: 'Med. Gas',        family: 'measurement', icon: Flame,       description: 'Medidor standalone de gas — ej: medidor de suministro general' },
-      { type: 'water_meter',        label: 'Med. Agua',       family: 'measurement', icon: Droplets,    description: 'Medidor standalone de agua — ej: agua municipal de entrada' },
-      { type: 'steam_meter',        label: 'Med. Vapor',      family: 'measurement', icon: FlameKindling,description: 'Medidor standalone de vapor — ej: medidor de suministro de red' },
-    ],
-  },
+  // NOTA: El grupo 'measurement' fue eliminado intencionalmente.
+  // Los medidores NO son nodos del canvas — son MPs (MeasurementPoints) de un equipo o fuente.
+  // Para medidores de frontera: usa 'Fuente Utility' y agrega MPs desde su inspector.
+  // Para medidores de equipo: define MPs en Equipos → Medidores y aparecen automáticamente.
+  // Los nodos MeasurementNode existentes en diagramas legacy siguen funcionando (backward compat).
   {
     family: 'organizational',
     label: 'Organización',
@@ -192,23 +179,30 @@ export const ALL_PALETTE_GROUPS: PaletteGroup[] = [
     color: 'border-l-red-400',
     headerColor: 'bg-red-400',
     items: [
-      { type: 'utility_source', label: 'Fuente Utility', family: 'special', icon: Power,       description: 'Fuente de suministro principal' },
-      { type: 'loss_node',      label: 'Pérdida',        family: 'special', icon: TrendingDown, description: 'Nodo de pérdida o fuga' },
+      { type: 'utility_source', label: 'Fuente Utility', family: 'special', icon: Power,       description: 'Fuente de suministro externa (CFE, empresa de gas, red de vapor…). Sus medidores se configuran en el inspector.' },
+      { type: 'loss_node',      label: 'Pérdida',        family: 'special', icon: TrendingDown, description: 'Nodo de pérdida o fuga estimada' },
       { type: 'annotation',     label: 'Anotación',      family: 'special', icon: StickyNote,  description: 'Nota o comentario en el diagrama' },
     ],
   },
 ]
 
 // ── Utility filter map ───────────────────────────────────────────────────────
-// nodeTypes allowed per utility (empty = show all groups)
+// El filtro de utility en la paleta es un HELPER OPCIONAL, no una restricción.
+// El usuario puede colocar cualquier nodo de cualquier utility en cualquier diagrama.
+// Los diagramas son canvases libres — la semántica de utility vive en los edges, no en el diagrama.
+//
+// Si el filtro de utility está activo, se muestran los tipos más relevantes para esa utility.
+// Los grupos 'organizational' y 'special' son SIEMPRE visibles.
+//
+// NOTA: Los tipos de medidor (flow_meter, energy_meter, etc.) fueron removidos del filtro
+// porque ya no se colocan como nodos en el canvas. Los medidores son MPs de equipos/fuentes.
 
 export const PALETTE_UTILITY_FILTER: Record<string, string[]> = {
   electricity: [
     'utility_source', 'generator',
     'transformer', 'panel', 'connector_busbar', 'connector_cable',
-    'breaker', 'disconnect', 'current_transformer',
-    'energy_meter', 'power_meter',
-    'motor', 'consumer',
+    'breaker', 'disconnect',
+    'motor', 'consumer', 'heat_exchanger',
     'area_node', 'process_node', 'production_line',
     'loss_node', 'annotation',
   ],
@@ -216,8 +210,7 @@ export const PALETTE_UTILITY_FILTER: Record<string, string[]> = {
     'utility_source', 'boiler',
     'connector_pipe', 'header', 'manifold',
     'valve', 'check_valve', 'control_valve', 'regulator',
-    'steam_meter', 'flow_meter', 'pressure_sensor', 'temperature_sensor',
-    'heat_exchanger', 'tank',
+    'heat_exchanger', 'tank', 'consumer',
     'area_node', 'process_node', 'production_line',
     'loss_node', 'annotation',
   ],
@@ -225,7 +218,6 @@ export const PALETTE_UTILITY_FILTER: Record<string, string[]> = {
     'utility_source', 'compressor',
     'tank', 'connector_pipe', 'header', 'manifold',
     'valve', 'regulator',
-    'flow_meter', 'pressure_sensor',
     'consumer',
     'area_node', 'process_node', 'production_line',
     'loss_node', 'annotation',
@@ -234,7 +226,6 @@ export const PALETTE_UTILITY_FILTER: Record<string, string[]> = {
     'utility_source', 'chiller', 'cooling_tower', 'pump',
     'connector_pipe', 'header',
     'valve', 'control_valve',
-    'flow_meter', 'temperature_sensor', 'energy_meter',
     'heat_exchanger', 'consumer',
     'area_node', 'process_node', 'production_line',
     'loss_node', 'annotation',
@@ -243,8 +234,7 @@ export const PALETTE_UTILITY_FILTER: Record<string, string[]> = {
     'utility_source',
     'connector_pipe', 'header', 'manifold',
     'valve', 'regulator', 'check_valve',
-    'gas_meter', 'flow_meter', 'pressure_sensor',
-    'boiler', 'consumer',
+    'boiler', 'generator', 'consumer',
     'area_node', 'process_node', 'production_line',
     'loss_node', 'annotation',
   ],
@@ -252,7 +242,6 @@ export const PALETTE_UTILITY_FILTER: Record<string, string[]> = {
     'utility_source', 'boiler', 'pump', 'heat_exchanger',
     'connector_pipe', 'header',
     'valve', 'control_valve',
-    'flow_meter', 'temperature_sensor',
     'consumer',
     'area_node', 'process_node', 'production_line',
     'loss_node', 'annotation',
@@ -261,7 +250,6 @@ export const PALETTE_UTILITY_FILTER: Record<string, string[]> = {
     'utility_source', 'pump', 'tank',
     'connector_pipe', 'header', 'manifold',
     'valve', 'check_valve', 'regulator',
-    'water_meter', 'flow_meter', 'pressure_sensor', 'level_sensor',
     'consumer',
     'area_node', 'process_node', 'production_line',
     'loss_node', 'annotation',
@@ -270,7 +258,6 @@ export const PALETTE_UTILITY_FILTER: Record<string, string[]> = {
     'utility_source', 'tank', 'pump',
     'connector_pipe',
     'valve', 'check_valve',
-    'flow_meter',
     'boiler', 'generator', 'consumer',
     'area_node', 'process_node',
     'loss_node', 'annotation',
@@ -279,7 +266,6 @@ export const PALETTE_UTILITY_FILTER: Record<string, string[]> = {
     'utility_source', 'tank',
     'connector_pipe', 'manifold',
     'valve', 'regulator', 'check_valve',
-    'gas_meter', 'flow_meter', 'pressure_sensor',
     'boiler', 'consumer',
     'area_node', 'process_node',
     'loss_node', 'annotation',
@@ -287,14 +273,12 @@ export const PALETTE_UTILITY_FILTER: Record<string, string[]> = {
   solar_generation: [
     'utility_source', 'generator', 'panel', 'transformer',
     'connector_cable', 'connector_busbar',
-    'energy_meter', 'power_meter',
     'area_node',
     'annotation',
   ],
   battery_storage: [
     'utility_source', 'transformer', 'panel',
     'connector_cable', 'connector_busbar',
-    'energy_meter', 'power_meter',
     'area_node',
     'annotation',
   ],
