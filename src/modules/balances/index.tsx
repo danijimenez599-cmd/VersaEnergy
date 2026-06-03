@@ -11,6 +11,7 @@ import { getEnergyPeriodRange, getUtilityLabel } from '@/shared/OperationalConte
 import { compileFromRows } from '@/services/topology-engine/compiler'
 import { calculateBalance } from '@/services/balance-engine'
 import type { MeasurementPoint } from '@/services/topology-engine/graphTypes'
+import type { EquipmentEfficiency } from '@/services/balance-engine/balanceEngine'
 import {
   Scale, Calculator, ChevronRight, AlertTriangle,
   CheckCircle, Info, TrendingDown, BarChart2, Minus, Plus,
@@ -28,6 +29,7 @@ interface BalanceRow {
 
 interface BalanceNodeResult {
   nodeId: string; tag: string; consumption: number; coverage: string
+  efficiencies?: EquipmentEfficiency[]
 }
 
 interface DiagramMeta {
@@ -267,6 +269,58 @@ function BalanceDetail({ balance: b }: { balance: BalanceRow }) {
           </table>
         </div>
       )}
+
+      {/* Eficiencias por equipo */}
+      {(() => {
+        const effs = (b.node_results as BalanceNodeResult[] || []).flatMap(n => n.efficiencies || [])
+        if (effs.length === 0) return null
+
+        return (
+          <div className="pt-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Eficiencias por equipo</p>
+            <div className="grid grid-cols-1 gap-2">
+              {effs.map((e, idx) => {
+                const eff = e.efficiencyPercent
+                const isGood = eff != null && eff >= 85
+                const isWarn = eff != null && eff >= 70 && eff < 85
+                const isBad = eff != null && eff < 70
+                
+                return (
+                  <div key={idx} className="flex items-center justify-between bg-white border border-border rounded-xl p-3 shadow-sm">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-mono font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">{e.tag}</span>
+                        <span className="text-xs font-semibold">{e.label || 'Equipo'}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[10px] text-gray-500 font-mono">
+                        <span>IN: {Number(e.inputValue).toLocaleString('es-MX', { maximumFractionDigits: 1 })} {e.inputUnit} <span className="opacity-50">({getUtilityLabel(e.inputUtility)})</span></span>
+                        <span>→</span>
+                        <span>OUT: {Number(e.outputValue).toLocaleString('es-MX', { maximumFractionDigits: 1 })} {e.outputUnit} <span className="opacity-50">({getUtilityLabel(e.outputUtility)})</span></span>
+                      </div>
+                    </div>
+                    {eff != null ? (
+                      <div className={`text-right px-3 py-1.5 rounded-lg border ${
+                        isGood ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
+                        isWarn ? 'bg-amber-50 border-amber-100 text-amber-700' :
+                        isBad  ? 'bg-red-50 border-red-100 text-red-700' :
+                                 'bg-gray-50 border-gray-200 text-gray-700'
+                      }`}>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80 mb-0.5">Eficiencia</p>
+                        <p className="text-lg font-bold leading-none">{eff.toFixed(1)}%</p>
+                      </div>
+                    ) : (
+                      <div className="text-right px-3 py-1.5 rounded-lg border bg-gray-50 border-gray-200 text-gray-500">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80 mb-0.5">Eficiencia</p>
+                        <p className="text-xs font-medium leading-none">Sin factor</p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -298,6 +352,7 @@ function BalanceWizard({ siteId, utilityType, selectedPeriod, onComplete, onCanc
   const [result, setResult] = useState<{
     totalInput: number; measured: number; unaccounted: number; coverage: number; unit: string
     nodeResults: BalanceNodeResult[]
+    equipmentEfficiencies?: EquipmentEfficiency[]
   } | null>(null)
   const [running, setRunning] = useState(false)
   const [notes, setNotes] = useState('')
@@ -363,6 +418,11 @@ function BalanceWizard({ siteId, utilityType, selectedPeriod, onComplete, onCanc
       { from: new Date(startIso), to: new Date(endIso) },
     )
 
+    const nodeResultsWithEffs = balance.nodeResults.map(nr => {
+      const effs = balance.equipmentEfficiencies.filter(e => e.nodeId === nr.nodeId)
+      return { ...nr, efficiencies: effs.length ? effs : undefined }
+    })
+
     await supabase.from('energy_balances').insert({
       site_id: siteId, utility: utilityType,
       period_start: startIso, period_end: endIso,
@@ -376,7 +436,7 @@ function BalanceWizard({ siteId, utilityType, selectedPeriod, onComplete, onCanc
       unaccounted_for: balance.unaccountedFor,
       unaccounted_for_percent: balance.unaccountedForPercent,
       measurement_coverage: balance.measurementCoverage,
-      node_results: balance.nodeResults,
+      node_results: nodeResultsWithEffs,
       diagram_version_id: diagramVersionId,
       notes,
     })
@@ -387,7 +447,8 @@ function BalanceWizard({ siteId, utilityType, selectedPeriod, onComplete, onCanc
       unaccounted: balance.unaccountedFor,
       coverage: balance.measurementCoverage,
       unit: balance.unit,
-      nodeResults: balance.nodeResults,
+      nodeResults: nodeResultsWithEffs,
+      equipmentEfficiencies: balance.equipmentEfficiencies,
     })
     setRunning(false)
     setStep(4)

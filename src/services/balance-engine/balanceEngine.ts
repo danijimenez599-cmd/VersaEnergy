@@ -1,6 +1,7 @@
 import type { MeasurementPoint, UtilityGraph } from '@/services/topology-engine/graphTypes'
 import { convertUnits, getConversion } from '@/services/topology-engine/unitConversion'
 import { getBoundaryMeterScopes, getMeterScopesByMeasurementPoint } from '@/services/topology-engine/meterBinding'
+import { convertToKwh } from './conversionFactors'
 
 export interface BalanceNodeResult {
   nodeId: string
@@ -16,6 +17,22 @@ export interface BalanceNodeResult {
   measuredBy?: string[]
   isBoundary?: boolean
   deviation?: number
+}
+
+export interface EquipmentEfficiency {
+  nodeId: string
+  tag: string
+  label: string
+  inputUtility: string
+  outputUtility: string
+  inputValue: number
+  inputUnit: string
+  inputValueKwh?: number
+  outputValue: number
+  outputUnit: string
+  outputValueKwh?: number
+  efficiencyPercent?: number
+  period: { from: Date; to: Date }
 }
 
 export interface BalanceResult {
@@ -34,6 +51,7 @@ export interface BalanceResult {
   measurementCoverage: number
   unit: string
   nodeResults: BalanceNodeResult[]
+  equipmentEfficiencies: EquipmentEfficiency[]
 }
 
 interface ReadingData {
@@ -308,5 +326,143 @@ export function calculateBalance(
     measurementCoverage,
     unit,
     nodeResults,
+    equipmentEfficiencies: calculateEquipmentEfficiencies(graph, readings, period),
   }
+}
+
+// ── Equipment Efficiency Calculation ──────────────────────────────────────────
+
+export function calculateEquipmentEfficiencies(
+  graph: UtilityGraph,
+  readings: ReadingData[],
+  period: { from: Date; to: Date }
+): EquipmentEfficiency[] {
+  const efficiencies: EquipmentEfficiency[] = []
+  const mpById = measurementPointsById(graph)
+
+  // Map readings by MP ID
+  const readingsByMp = new Map<string, ReadingData[]>()
+  for (const r of readings) {
+    const list = readingsByMp.get(r.measurement_point_id) || []
+    list.push(r)
+    readingsByMp.set(r.measurement_point_id, list)
+  }
+
+  // Iterate over all nodes in the graph
+  for (const node of graph.nodes) {
+    // 1. Encontrar todos los MPs que miden este nodo
+    // (Pueden estar definidos por target=node)
+    const nodeMpScopes = graph.measurementScopes.filter(s => 
+      s.targets.some(t => t.type === 'node' && t.id === node.id)
+    )
+
+    if (nodeMpScopes.length === 0) continue
+
+    // Agrupar MPs por utility
+    const mpsByUtility = new Map<string, typeof nodeMpScopes>()
+    for (const scope of nodeMpScopes) {
+      const mp = mpById.get(scope.measurementPointId)
+      if (!mp) continue
+      const utility = mp.utility || 'unknown'
+      const list = mpsByUtility.get(utility) || []
+      list.push(scope)
+      mpsByUtility.set(utility, list)
+    }
+
+    // Si tiene menos de 2 utilities distintas, no es un nodo de conversión multi-utility
+    if (mpsByUtility.size < 2) continue
+
+    // 2. Identificar input utility vs output utility usando el grafo (edges)
+    const incomingUtilities = new Set<string>()
+    for (const edgeId of node.incoming) {
+      const edge = graph.edges.find(e => e.id === edgeId)
+      if (edge && edge.utility) incomingUtilities.add(edge.utility)
+    }
+
+    const outgoingUtilities = new Set<string>()
+    for (const edgeId of node.outgoing) {
+      const edge = graph.edges.find(e => e.id === edgeId)
+      if (edge && edge.utility) outgoingUtilities.add(edge.utility)
+    }
+
+    // Identificar pares de conversión (input -> output)
+    const pairs: { inUtility: string; outUtility: string }[] = []
+
+    // Caso 1: Podemos deducirlo por la dirección del flujo
+    for (const inUtil of incomingUtilities) {
+      for (const outUtil of outgoingUtilities) {
+        if (inUtil !== outUtil && mpsByUtility.has(inUtil) && mpsByUtility.has(outUtil)) {
+          pairs.push({ inUtility: inUtil, outUtility: outUtil })
+        }
+      }
+    }
+
+    // Caso 2: Fallback simple si los edges no tienen utilities explícitas pero el nodo tiene exactamente 2 utilities
+    if (pairs.length === 0 && mpsByUtility.size === 2) {
+      const utils = Array.from(mpsByUtility.keys())
+      // Asumimos orden alfabético inverso (ej. natural_gas in, steam out) como fallback si no hay flujo
+      // Lo ideal es que el usuario conecte los edges correctamente
+      pairs.push({ inUtility: utils[0], outUtility: utils[1] })
+    }
+
+    // 3. Calcular la eficiencia para cada par
+    for (const pair of pairs) {
+      const inScopes = mpsByUtility.get(pair.inUtility) || []
+      const outScopes = mpsByUtility.get(pair.outUtility) || []
+
+      let inTotal = 0
+      let inUnit = ''
+      for (const scope of inScopes) {
+        const mp = mpById.get(scope.measurementPointId)
+        if (!mp || !isBalanceMeasurement(mp)) continue
+        const mpReadings = readingsByMp.get(mp.id) || []
+        const valueObj = calculateReadingValue(mpReadings, mp, period)
+        if (valueObj.value > 0) {
+          inTotal += valueObj.value
+          if (!inUnit) inUnit = valueObj.unit || mp.unit
+        }
+      }
+
+      let outTotal = 0
+      let outUnit = ''
+      for (const scope of outScopes) {
+        const mp = mpById.get(scope.measurementPointId)
+        if (!mp || !isBalanceMeasurement(mp)) continue
+        const mpReadings = readingsByMp.get(mp.id) || []
+        const valueObj = calculateReadingValue(mpReadings, mp, period)
+        if (valueObj.value > 0) {
+          outTotal += valueObj.value
+          if (!outUnit) outUnit = valueObj.unit || mp.unit
+        }
+      }
+
+      if (inTotal > 0 && outTotal >= 0) {
+        const inKwh = convertToKwh(inTotal, pair.inUtility, inUnit)
+        const outKwh = convertToKwh(outTotal, pair.outUtility, outUnit)
+
+        let eff = undefined
+        if (inKwh != null && inKwh > 0 && outKwh != null) {
+          eff = (outKwh / inKwh) * 100
+        }
+
+        efficiencies.push({
+          nodeId: node.id,
+          tag: node.tag,
+          label: node.label,
+          inputUtility: pair.inUtility,
+          outputUtility: pair.outUtility,
+          inputValue: inTotal,
+          inputUnit: inUnit,
+          inputValueKwh: inKwh ?? undefined,
+          outputValue: outTotal,
+          outputUnit: outUnit,
+          outputValueKwh: outKwh ?? undefined,
+          efficiencyPercent: eff,
+          period,
+        })
+      }
+    }
+  }
+
+  return efficiencies
 }
