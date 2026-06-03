@@ -1,11 +1,14 @@
 import {
   useCallback, useEffect, useMemo, useState, type ReactNode,
 } from 'react'
+import React from 'react'
 import {
-  BadgeCheck, Building2, CalendarClock,
-  ExternalLink, Factory, Gauge, Map, Network, PackageCheck,
+  BadgeCheck, CalendarClock,
+  ExternalLink, Factory, Gauge, Map, Network,
   Plus, Save, ShieldCheck, Wrench, X, Zap,
+  ChevronRight, Activity, Cpu, Layers,
 } from 'lucide-react'
+import { motion } from 'framer-motion'
 import { AssetTree } from '@/shared/AssetTree'
 import { Badge } from '@/shared/Badge'
 import { Button } from '@/shared/Button'
@@ -18,6 +21,8 @@ import { getUtilityLabel, utilityOptions } from '@/shared/OperationalContext'
 import { supabase } from '@/services/supabase'
 import {
   getAllowedQuantities,
+  getAllowedUnits,
+  getAllUnitsFromCatalog,
   getDefaultUnit,
   QUANTITY_LABELS,
   type MeasurementQuantity,
@@ -50,10 +55,6 @@ const TYPE_LABELS: Record<EnergyAssetNodeType, string> = {
   plant: 'Planta', area: 'Área', system: 'Sistema', equipment: 'Equipo',
 }
 
-const TYPE_ICONS = {
-  plant: Factory, area: Building2, system: Network, equipment: Wrench,
-}
-
 const READINESS_COLOR: Record<CmmsReadiness, 'ok' | 'warn' | 'danger'> = {
   ready: 'ok', partial: 'warn', missing: 'danger',
 }
@@ -73,6 +74,26 @@ const EQUIPMENT_TYPE_OPTIONS: [string, string][] = [
   ['generator', 'Generador'], ['heat_exchanger', 'Intercambiador'],
   ['motor', 'Motor'], ['consumer', 'Consumidor'], ['custom_equipment', 'Otro equipo'],
 ]
+
+const SOURCE_TYPE_LABELS: Record<string, string> = {
+  utility_grid: 'Fuente externa - Red publica',
+  fuel_delivery: 'Fuente externa - Combustible',
+  water_main: 'Fuente externa - Acometida de agua',
+  renewable: 'Fuente externa - Renovable contratada',
+  generator: 'Fuente externa - Generador de tercero',
+  storage: 'Fuente externa - Almacenamiento externo',
+  custom: 'Fuente externa',
+}
+
+const PRODUCER_EQUIPMENT_TYPES = new Set([
+  'boiler',
+  'compressor',
+  'chiller',
+  'cooling_tower',
+  'generator',
+  'solar_array',
+  'pv_array',
+])
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -97,6 +118,14 @@ interface LinkedMapNode {
   node_type: string; utility: string | null; properties: Record<string, unknown> | null
 }
 
+interface ExternalSource {
+  id: string
+  name: string
+  source_type: string
+  utility_type: string
+  description: string | null
+  is_active: boolean
+}
 
 function createDefaultForm(utilityType?: string | null): AssetFormState {
   const utility = utilityType || 'electricity'
@@ -130,11 +159,17 @@ export function PlantAssetTreeView({ siteId, utilityType }: Props) {
     setLoading(true)
     const result = await loadEnergyAssetTree(siteId, utilityType)
     setTree(result)
-    if (!selectedNodeId && result.root) setSelectedNodeId(result.root.id)
     setLoading(false)
-  }, [siteId, utilityType, selectedNodeId])
+  }, [siteId, utilityType])
 
   useEffect(() => { refresh() }, [refresh])
+
+  // Select root automatically on load if none is selected
+  useEffect(() => {
+    if (tree?.root && !selectedNodeId) {
+      setSelectedNodeId(tree.root.id)
+    }
+  }, [tree, selectedNodeId])
 
   const selectedNode = useMemo(
     () => tree?.flatNodes.find((n) => n.id === selectedNodeId) ?? tree?.root ?? null,
@@ -213,13 +248,10 @@ export function PlantAssetTreeView({ siteId, utilityType }: Props) {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Summary strip */}
-      <SummaryStrip tree={tree} />
-
+    <div>
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
         {/* ── Left panel — Tree ─────────────────────────────────────────── */}
-        <Card padding="none" className="overflow-hidden flex flex-col h-[600px]">
+        <Card padding="none" className="overflow-hidden flex flex-col h-[calc(100dvh-8.5rem)] min-h-[560px]">
           <AssetTree
             root={tree.root}
             loading={loading}
@@ -235,6 +267,7 @@ export function PlantAssetTreeView({ siteId, utilityType }: Props) {
           <NodeDetail
             node={selectedNode}
             onCreate={openCreate}
+            tree={tree}
           />
         )}
       </div>
@@ -268,52 +301,34 @@ export function PlantAssetTreeView({ siteId, utilityType }: Props) {
   )
 }
 
-// ── Summary strip ─────────────────────────────────────────────────────────────
-
-function SummaryStrip({ tree }: { tree: EnergyAssetTreeResult }) {
-  const items = [
-    { label: 'Plantas',         value: tree.summary.plants,           icon: Factory },
-    { label: 'Áreas',           value: tree.summary.areas,            icon: Building2 },
-    { label: 'Sistemas',        value: tree.summary.systems,          icon: Network },
-    { label: 'Equipos',         value: tree.summary.equipment,        icon: Wrench },
-    { label: 'Medidores',       value: tree.summary.measurementPoints,icon: Gauge },
-    { label: 'CMMS listos',     value: tree.summary.cmmsReadyEquipment, icon: PackageCheck },
-  ]
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-      {items.map(({ label, value, icon: Icon }) => (
-        <div key={label} className="rounded-[--radius-lg] border border-[--color-border-strong] bg-white px-3 py-3 shadow-card">
-          <div className="flex items-center gap-2">
-            <Icon size={14} className="text-brand" />
-            <span className="text-xs text-gray-500">{label}</span>
-          </div>
-          <p className="mt-1 text-xl font-bold text-gray-900" style={{ fontFamily: 'var(--font-display)' }}>
-            {value}
-          </p>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 // ── Node detail ───────────────────────────────────────────────────────────────
 
 function NodeDetail({
-  node, onCreate,
+  node, onCreate, tree,
 }: {
   node: EnergyAssetTreeNode
   onCreate: (kind: EnergyAssetCreateKind, parent: EnergyAssetTreeNode) => void
+  tree: EnergyAssetTreeResult | null
 }) {
-  const Icon = TYPE_ICONS[node.type]
   const allowedKinds = getAllowedCreateKinds(node.type)
   const [activeTab, setActiveTab] = useState<DetailTab>('info')
   const [measurementPoints, setMeasurementPoints] = useState<LinkedMeasurementPoint[]>([])
   const [mapNodes, setMapNodes] = useState<LinkedMapNode[]>([])
+  const [externalSources, setExternalSources] = useState<ExternalSource[]>([])
 
   useEffect(() => {
     let cancelled = false
     async function loadDetails() {
-      const [{ data: points }, { data: diagramNodes }] = await Promise.all([
+      const sourcesQuery = node.type === 'plant'
+        ? supabase
+          .from('energy_sources')
+          .select('id,name,source_type,utility_type,description,is_active')
+          .eq('site_id', node.sourceId)
+          .eq('is_active', true)
+          .order('name')
+        : Promise.resolve({ data: [] as ExternalSource[], error: null })
+
+      const [{ data: points }, { data: diagramNodes }, { data: sources }] = await Promise.all([
         supabase
           .from('measurement_points')
           .select('id,tag,name,target_type,target_id,utility,measurement_type,quantity,unit,source_type,source_config,last_calibration_date,calibration_due_date,meter_equipment_id')
@@ -323,9 +338,11 @@ function NodeDetail({
           .from('energy_diagram_nodes')
           .select('id,diagram_id,tag,label,node_type,utility,properties')
           .limit(500),
+        sourcesQuery,
       ])
       if (cancelled) return
       setMeasurementPoints((points || []) as LinkedMeasurementPoint[])
+      setExternalSources((sources || []) as ExternalSource[])
       setMapNodes(
         ((diagramNodes || []) as LinkedMapNode[]).filter((item) => {
           const b = (item.properties?.asset_binding || {}) as Record<string, unknown>
@@ -338,83 +355,125 @@ function NodeDetail({
     return () => { cancelled = true }
   }, [node.sourceId])
 
+  // Resolve dynamic parents for CMMS-style breadcrumbs
+  const breadcrumbs = useMemo(() => {
+    const list: typeof node[] = []
+    let curr = node
+    while (curr.parentId) {
+      const parent = tree?.flatNodes.find(n => n.id === curr.parentId)
+      if (!parent) break
+      list.unshift(parent)
+      curr = parent
+    }
+    return list
+  }, [node, tree])
+
   const tabs: Array<{ id: DetailTab; label: string; icon: ReactNode }> = [
-    { id: 'info',  label: 'Información',          icon: <Wrench size={13} /> },
-    { id: 'specs', label: 'Especificaciones',      icon: <Zap size={13} /> },
-    { id: 'meters',label: 'Medidores',             icon: <Gauge size={13} /> },
-    { id: 'map',   label: 'Mapa Energy',           icon: <Map size={13} /> },
-    { id: 'cmms',  label: 'CMMS',                  icon: <ShieldCheck size={13} /> },
+    { id: 'info',  label: 'Información',          icon: <Wrench size={12} /> },
+    { id: 'specs', label: 'Especificaciones',      icon: <Zap size={12} /> },
+    { id: 'meters',label: 'Medidores',             icon: <Gauge size={12} /> },
+    { id: 'map',   label: 'Mapa Energy',           icon: <Map size={12} /> },
+    { id: 'cmms',  label: 'CMMS',                  icon: <ShieldCheck size={12} /> },
   ]
 
   return (
-    <Card padding="none" className="overflow-hidden">
-      {/* Header */}
-      <div className="border-b border-[--color-border-strong] px-5 py-4 bg-white">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={READINESS_COLOR[node.cmmsReadiness]}>
-                {READINESS_LABEL[node.cmmsReadiness]}
-              </Badge>
-              <Badge variant="brand">{TYPE_LABELS[node.type]}</Badge>
-              {node.utility && (
-                <Badge variant="neutral">{getUtilityLabel(node.utility)}</Badge>
-              )}
-            </div>
-            <h2
-              className="mt-2 text-lg font-bold text-gray-900 truncate"
-              style={{ fontFamily: 'var(--font-display)' }}
-            >
-              {node.name}
-            </h2>
-            <p className="mt-0.5 text-sm text-gray-400 font-mono">{node.code || 'Sin código/TAG'}</p>
-          </div>
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand text-white">
-            <Icon size={20} />
-          </div>
+    <Card padding="none" className="overflow-hidden bg-white border border-slate-200 rounded-2xl shadow-sm">
+      {/* CMMS-style header context block */}
+      <div className="bg-slate-50/50 border-b border-slate-200 px-6 py-4 relative overflow-hidden shrink-0">
+        <div className="absolute top-0 right-0 p-4 opacity-[0.02] pointer-events-none">
+          <Factory size={100} />
         </div>
 
-        {allowedKinds.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {allowedKinds.map((kind) => (
-              <Button
-                key={kind}
-                size="sm"
-                variant={kind === 'meter' ? 'secondary' : 'primary'}
-                leftIcon={<Plus size={13} />}
-                onClick={() => onCreate(kind, node)}
-              >
-                {KIND_LABELS[kind]}
-              </Button>
-            ))}
+        {/* Dynamic technical breadcrumbs */}
+        <div className="hidden sm:flex items-center gap-1.5 mb-2.5">
+          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sede</span>
+          {breadcrumbs.map(b => (
+            <React.Fragment key={b.id}>
+              <ChevronRight size={10} className="text-slate-300" />
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate max-w-[120px]">{b.name}</span>
+            </React.Fragment>
+          ))}
+          <ChevronRight size={10} className="text-slate-300" />
+          <span className="text-[9px] font-black text-brand-blue uppercase tracking-widest truncate">{node.name}</span>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 relative z-10">
+          <div className="flex-1 min-w-0">
+            <p className="mb-1 hidden text-[9px] font-black uppercase tracking-widest text-slate-400 sm:block">
+              Expediente Técnico de Activo
+            </p>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-brand-blue text-white flex items-center justify-center shadow-md shadow-brand-blue/20 border border-brand-blue/10 shrink-0">
+                <Cpu size={15} />
+              </div>
+              <div>
+                <h2 className="font-bold text-slate-900 text-base tracking-tight truncate leading-tight">{node.name}</h2>
+                <p className="mt-0.5 text-[11px] text-slate-400 font-mono leading-none">{node.code || 'Sin código/TAG'}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center flex-wrap gap-1.5 mt-3">
+              <Badge variant="brand" className="text-[9px] px-2 py-0.5">
+                {TYPE_LABELS[node.type]}
+              </Badge>
+              <Badge variant={READINESS_COLOR[node.cmmsReadiness]} className="text-[9px] px-2 py-0.5">
+                {READINESS_LABEL[node.cmmsReadiness]}
+              </Badge>
+              {node.utility && (
+                <Badge variant="neutral" className="text-[9px] px-2 py-0.5">
+                  {getUtilityLabel(node.utility)}
+                </Badge>
+              )}
+            </div>
           </div>
-        )}
+
+          {allowedKinds.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 shrink-0">
+              {allowedKinds.map((kind) => (
+                <Button
+                  key={kind}
+                  size="sm"
+                  variant={kind === 'meter' ? 'secondary' : 'primary'}
+                  leftIcon={<Plus size={12} />}
+                  onClick={() => onCreate(kind, node)}
+                >
+                  {KIND_LABELS[kind]}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-[--color-border-strong] bg-gray-50/60 px-4">
-        <nav className="flex gap-0.5 overflow-x-auto">
-          {tabs.map((tab) => (
+      {/* Navigation Tabs */}
+      <div className="bg-white border-b border-slate-200 px-6">
+        <div className="flex gap-4 overflow-x-auto scrollbar-none sm:gap-6">
+          {tabs.map(t => (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={[
-                'flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-xs font-semibold transition-colors cursor-pointer',
-                activeTab === tab.id
-                  ? 'border-brand text-brand'
-                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
-              ].join(' ')}
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`flex shrink-0 items-center gap-1.5 py-3 text-[10px] font-bold uppercase tracking-[0.15em] relative transition-all cursor-pointer ${
+                activeTab === t.id ? 'text-brand-blue' : 'text-slate-400 hover:text-slate-900'
+              }`}
             >
-              {tab.icon}
-              {tab.label}
+              {t.icon}
+              {t.label}
+              {activeTab === t.id && (
+                <motion.div
+                  layoutId="activeDetailTabIndicator"
+                  className="absolute bottom-0 left-0 w-full h-0.5 bg-brand-blue"
+                />
+              )}
             </button>
           ))}
-        </nav>
+        </div>
       </div>
 
       {/* Tab content */}
-      <div className="min-h-[400px] p-5 overflow-auto">
-        {activeTab === 'info' && <InfoTab node={node} />}
+      <div className="min-h-[400px] p-6 overflow-auto bg-slate-50/10">
+        {activeTab === 'info' && (
+          <InfoTab node={node} tree={tree} externalSources={externalSources} />
+        )}
         {activeTab === 'specs' && <SpecsTab node={node} />}
         {activeTab === 'meters' && (
           <MetersTab points={measurementPoints} node={node} onCreate={onCreate} />
@@ -426,21 +485,52 @@ function NodeDetail({
   )
 }
 
-// ── Tab: Info ─────────────────────────────────────────────────────────────────
-
-function InfoTab({ node }: { node: EnergyAssetTreeNode }) {
+function InfoTab({
+  node,
+  tree,
+  externalSources,
+}: {
+  node: EnergyAssetTreeNode
+  tree: EnergyAssetTreeResult | null
+  externalSources: ExternalSource[]
+}) {
   const specs = (node.properties?.specs || {}) as Record<string, unknown>
+  const producerEquipment = tree?.flatNodes.filter(isProducerEquipment) || []
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <section>
-        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Ficha general</h3>
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-          <InfoTile label="Tipo" value={TYPE_LABELS[node.type]} />
-          <InfoTile label="Utility" value={node.utility ? getUtilityLabel(node.utility) : 'Multi-utility'} />
-          <InfoTile label="Estado" value={node.status || 'Activo'} />
-          <InfoTile label="Medidores" value={node.measurementPointCount} />
+        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2">
+          <Wrench size={13} /> Ficha General
+        </h3>
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+          <InfoTile label="Tipo" value={TYPE_LABELS[node.type]} icon={<Layers size={14} />} />
+          <InfoTile label="Rol energético" value={getEnergyRoleLabel(node)} icon={<Zap size={14} />} />
+          <InfoTile label="Utility" value={node.utility ? getUtilityLabel(node.utility) : 'Multi-utility'} icon={<Network size={14} />} />
+          <InfoTile label="Estado" value={node.status || 'Activo'} icon={<Activity size={14} />} />
+          {node.type !== 'plant' && (
+            <InfoTile label="Medidores" value={node.measurementPointCount} icon={<Gauge size={14} />} />
+          )}
         </div>
       </section>
+
+      {node.type === 'plant' && (
+        <section>
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2">
+            <Factory size={13} /> Suministro y producción de utilities
+          </h3>
+          <div className="mb-3 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs leading-5 text-sky-900">
+            <span className="font-bold">Fuente externa</span> es lo que entra a la planta desde fuera: red pública, acometida, entrega de combustible o suministro de tercero.{' '}
+            <span className="font-bold">Equipo productor</span> es un activo mantenible dentro de la planta, como una caldera, compresor o chiller.
+            No dupliques una caldera como fuente externa; declárala como equipo productor.
+          </div>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <ExternalSourcesPanel sources={externalSources} />
+            <ProducerEquipmentPanel equipment={producerEquipment} />
+          </div>
+        </section>
+      )}
+
       {node.description && (
         <section>
           <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Descripción</h3>
@@ -459,6 +549,85 @@ function InfoTab({ node }: { node: EnergyAssetTreeNode }) {
             <p className="text-xs text-gray-400 mt-2">+{Object.keys(specs).length - 6} campos adicionales en Especificaciones</p>
           )}
         </section>
+      )}
+    </div>
+  )
+}
+
+function ExternalSourcesPanel({ sources }: { sources: ExternalSource[] }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold text-slate-900">Fuentes externas</p>
+          <p className="mt-0.5 text-[11px] text-slate-400">Suministros que no son activos mantenibles.</p>
+        </div>
+        <Badge variant="neutral" className="shrink-0 text-[9px]">{sources.length}</Badge>
+      </div>
+      {sources.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-500">
+          No hay fuentes externas configuradas para esta planta. Úsalas para red pública, acometidas o entregas externas.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {sources.map((source) => (
+            <div key={source.id} className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-slate-900">{source.name}</p>
+                  <p className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                    {SOURCE_TYPE_LABELS[source.source_type] || SOURCE_TYPE_LABELS.custom}
+                  </p>
+                </div>
+                <Badge variant="info" className="shrink-0 text-[9px]">
+                  {getUtilityLabel(source.utility_type)}
+                </Badge>
+              </div>
+              {source.description && (
+                <p className="mt-2 text-xs leading-5 text-slate-500">{source.description}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProducerEquipmentPanel({ equipment }: { equipment: EnergyAssetTreeNode[] }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold text-slate-900">Equipos productores</p>
+          <p className="mt-0.5 text-[11px] text-slate-400">Activos internos que producen o transforman utilities.</p>
+        </div>
+        <Badge variant="brand" className="shrink-0 text-[9px]">{equipment.length}</Badge>
+      </div>
+      {equipment.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-500">
+          No se detectaron equipos productores. Revisa el tipo de equipo si esperabas ver calderas, compresores o chillers.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {equipment.slice(0, 8).map((item) => (
+            <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold text-slate-900">{item.name}</p>
+                  <p className="mt-1 font-mono text-[11px] text-slate-400">{item.code || 'Sin TAG'}</p>
+                </div>
+                <Badge variant="ok" className="shrink-0 text-[9px]">Activo mantenible</Badge>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                {item.utility ? getUtilityLabel(item.utility) : 'Multi-utility'} · {getEquipmentTypeLabel(item)}
+              </p>
+            </div>
+          ))}
+          {equipment.length > 8 && (
+            <p className="text-[11px] font-semibold text-slate-400">+{equipment.length - 8} equipos productores adicionales</p>
+          )}
+        </div>
       )}
     </div>
   )
@@ -781,11 +950,49 @@ function CmmsTab({ node }: { node: EnergyAssetTreeNode }) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function InfoTile({ label, value }: { label: string; value: string | number }) {
+function getEquipmentType(node: EnergyAssetTreeNode) {
+  return String(node.properties?.equipment_type || node.properties?.equipmentType || '').toLowerCase()
+}
+
+function getEquipmentTypeLabel(node: EnergyAssetTreeNode) {
+  const equipmentType = getEquipmentType(node)
+  return EQUIPMENT_TYPE_OPTIONS.find(([value]) => value === equipmentType)?.[1] || 'Equipo productor'
+}
+
+function isProducerEquipment(node: EnergyAssetTreeNode) {
+  if (node.type !== 'equipment') return false
+
+  const assetRole = String(node.properties?.asset_role || '')
+  if (assetRole === 'producer' || assetRole === 'utility_producer') return true
+  if (assetRole === 'measurement_device' || assetRole === 'measurement_subsystem') return false
+
+  const equipmentType = getEquipmentType(node)
+  if (PRODUCER_EQUIPMENT_TYPES.has(equipmentType)) return true
+
+  return /\b(caldera|boiler|compresor|compressor|chiller|generador|generator|torre|cooling tower|solar|fotovoltaic)/i.test(node.name)
+}
+
+function getEnergyRoleLabel(node: EnergyAssetTreeNode) {
+  if (node.type === 'plant') return 'Planta con fuentes externas configurables'
+  if (node.type === 'area') return 'Área operacional'
+  if (node.type === 'system') return 'Sistema de distribución o uso'
+
+  const assetRole = String(node.properties?.asset_role || '')
+  if (assetRole === 'measurement_device' || assetRole === 'measurement_subsystem') return 'Equipo medidor'
+  if (isProducerEquipment(node)) {
+    return `Equipo productor${node.utility ? ` de ${getUtilityLabel(node.utility)}` : ''}`
+  }
+  return 'Equipo consumidor o mantenible'
+}
+
+function InfoTile({ label, value, icon }: { label: string; value: string | number; icon?: ReactNode }) {
   return (
-    <div className="rounded-[--radius-md] border border-[--color-border-strong] bg-gray-50/60 p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-gray-800 truncate">{value || '—'}</p>
+    <div className="bg-white border border-slate-200/60 rounded-xl p-4 shadow-sm hover:border-slate-300 transition-all flex flex-col justify-between">
+      <div className="flex items-center gap-2 mb-2">
+        {icon && <span className="text-slate-400">{icon}</span>}
+        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{label}</p>
+      </div>
+      <p className="text-xs font-bold text-slate-900 tracking-tight truncate">{value || '—'}</p>
     </div>
   )
 }
@@ -824,19 +1031,46 @@ function AssetNodeFormModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={kind ? `Nuevo ${KIND_LABELS[kind]}` : undefined}
-      description={parent ? `Padre: ${parent.code ? `${parent.code} · ` : ''}${parent.name}` : undefined}
+      title={
+        <div className="flex items-center gap-3">
+          <div className="grid h-9 w-9 place-items-center rounded-lg bg-slate-900 text-white shadow-md shadow-slate-900/10">
+            <Factory size={16} />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold tracking-tight text-slate-900">
+              {kind ? `Nuevo ${KIND_LABELS[kind]}` : 'Nuevo activo'}
+            </h3>
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+              {parent ? `Padre: ${parent.code ? `${parent.code} · ` : ''}${parent.name}` : 'Ficha técnica del árbol de activos'}
+            </p>
+          </div>
+        </div>
+      }
       size="lg"
-      className="max-h-[90vh] overflow-y-auto"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} rightIcon={<X size={13} />} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button onClick={onSave} loading={saving} disabled={!canSave} rightIcon={<Save size={13} />}>
+            Crear
+          </Button>
+        </>
+      }
     >
       <div className="space-y-4">
         {error && (
-          <div className="rounded-[--radius-md] border border-[--color-danger-border] bg-[--color-danger-bg] px-3 py-2 text-sm text-[--color-danger]">
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-semibold text-rose-700">
             {error}
           </div>
         )}
 
-        <section className="rounded-[--radius-lg] border border-[--color-border-strong] bg-gray-50/60 p-4">
+        {/* Section 1: Identidad y jerarquía */}
+        <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+          <div className="mb-3.5 flex items-center gap-2">
+            <Factory size={13} className="text-brand-blue" />
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Identidad y jerarquía</p>
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <FormField label="Nombre" required>
               <input value={form.name} onChange={(e) => set({ name: e.target.value })} className={inputClass} placeholder="Ej. Compresor C-02" autoFocus />
@@ -850,8 +1084,13 @@ function AssetNodeFormModal({
           </div>
         </section>
 
+        {/* Section 2: Clasificación operacional */}
         {kind !== 'area' && (
-          <section className="rounded-[--radius-lg] border border-[--color-border-strong] bg-white p-4">
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="mb-3.5 flex items-center gap-2">
+              <Gauge size={13} className="text-brand-blue" />
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Clasificación operacional</p>
+            </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <FormField label="Utility">
                 <select value={form.utility} onChange={(e) => changeUtility(e.target.value)} className={selectClass}>
@@ -873,14 +1112,18 @@ function AssetNodeFormModal({
           </section>
         )}
 
+        {/* Section 3: Perfil del medidor */}
         {kind === 'meter' && (
-          <section className="rounded-[--radius-lg] border border-purple-100 bg-purple-50/60 p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-bold text-purple-900">Perfil del medidor</p>
-                <p className="text-xs text-purple-700 mt-0.5">Crea equipo mantenible + MeasurementPoint en una sola acción.</p>
+          <section className="rounded-xl border border-purple-200 bg-purple-50/30 p-4">
+            <div className="mb-3.5 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Zap size={13} className="text-purple-600" />
+                <div>
+                  <p className="text-xs font-bold text-purple-900">Perfil del medidor</p>
+                  <p className="text-[10px] text-purple-600 mt-0.5">Crea equipo mantenible + MeasurementPoint en una sola acción.</p>
+                </div>
               </div>
-              <Badge variant="brand">Medición</Badge>
+              <Badge variant="brand" className="text-[9px] bg-purple-600 text-white border-none">Medición</Badge>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <FormField label="Tipo de medición">
@@ -899,7 +1142,18 @@ function AssetNodeFormModal({
                 </select>
               </FormField>
               <FormField label="Unidad">
-                <input value={form.unit} onChange={(e) => set({ unit: e.target.value })} className={`${inputClass} font-mono`} />
+                <select
+                  value={form.unit}
+                  onChange={(e) => set({ unit: e.target.value })}
+                  className={`${selectClass} font-mono`}
+                >
+                  {(getAllowedUnits(form.utility, form.quantity as MeasurementQuantity).length > 0
+                    ? getAllowedUnits(form.utility, form.quantity as MeasurementQuantity)
+                    : getAllUnitsFromCatalog()
+                  ).map((u) => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
               </FormField>
               <FormField label="Fuente de datos">
                 <select value={form.sourceMode} onChange={(e) => set({ sourceMode: e.target.value as AssetFormState['sourceMode'] })} className={selectClass}>
@@ -926,14 +1180,6 @@ function AssetNodeFormModal({
           </section>
         )}
 
-        <div className="flex justify-end gap-2 border-t border-[--color-border-strong] pt-4">
-          <Button variant="secondary" onClick={onClose} rightIcon={<X size={14} />} disabled={saving}>
-            Cancelar
-          </Button>
-          <Button onClick={onSave} loading={saving} disabled={!canSave} rightIcon={<Save size={14} />}>
-            Crear
-          </Button>
-        </div>
       </div>
     </Modal>
   )

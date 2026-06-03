@@ -19,9 +19,10 @@ import { useUIStore } from '@/store/uiStore'
 import { getUtilityLabel } from '@/shared/OperationalContext'
 import { getTemplatesForUtility, instantiateTemplate } from './DiagramTemplates'
 import type { DiagramTemplate } from './DiagramTemplates'
+import { supabase } from '@/services/supabase'
 import {
   Save, Plus, Trash2, Network, ShieldCheck, Globe,
-  Copy, CheckCircle, ChevronLeft, MoreHorizontal, Filter, History,
+  CheckCircle, ChevronLeft, MoreHorizontal, Filter, History, Pencil,
 } from 'lucide-react'
 import type { ValidationIssue } from '@/services/topology-engine/graphTypes'
 
@@ -81,7 +82,6 @@ export default function MapaPage() {
   const [showValidation, setShowValidation] = useState(false)
   const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([])
   const [publishing, setPublishing] = useState(false)
-  const [cloning, setCloning] = useState(false)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
@@ -125,7 +125,7 @@ export default function MapaPage() {
 
   const { selectedSiteId, selectedUtilityType } = useUIStore()
   const { diagramId, diagramName, isDirty, diagramStatus, nodes, edges } = useDiagramStore()
-  const { loadDiagrams, loadDiagram, createDiagram, saveDiagram, deleteDiagram, publishDiagram, cloneDiagram, restoreVersion } = useDiagramPersistence()
+  const { loadDiagrams, loadDiagram, createDiagram, saveDiagram, deleteDiagram, publishDiagram, restoreVersion } = useDiagramPersistence()
 
   useEffect(() => {
     async function load() {
@@ -228,7 +228,7 @@ export default function MapaPage() {
     setShowActionsMenu(false)
     openConfirm({
       title: 'Publicar diagrama',
-      description: 'El diagrama quedará congelado. Para editarlo deberás clonarlo como nuevo borrador.',
+      description: 'El diagrama quedará congelado. Para editarlo de nuevo deberás presionar el botón "Editar" para volverlo a estado borrador. El estado actual quedará guardado en el historial de versiones.',
       confirmLabel: 'Publicar',
       danger: false,
       onConfirm: async () => { closeConfirm(); await doPublish() },
@@ -247,32 +247,33 @@ export default function MapaPage() {
     }
   }
 
-  // ── Clone ─────────────────────────────────────────────────────────────────
-
-  function handleClone() {
-    if (!diagramId || !selectedSiteId) return
+  async function handleUnlockForEdit() {
+    if (!diagramId) return
     setShowActionsMenu(false)
     openConfirm({
-      title: 'Clonar diagrama',
-      description: 'Se creará un nuevo borrador editable con el contenido de este diagrama.',
-      confirmLabel: 'Clonar',
+      title: 'Editar diagrama publicado',
+      description: 'El diagrama volverá a estado borrador (draft). Podrás realizar modificaciones, guardar y volver a publicar. La versión anterior se conservará en el historial.',
+      confirmLabel: 'Editar',
       danger: false,
       onConfirm: async () => {
         closeConfirm()
-        setCloning(true)
-        const result = await cloneDiagram(diagramId, selectedSiteId)
-        setCloning(false)
-        if (result.success && result.newId) {
-          showToast('Diagrama clonado como nuevo borrador.', true)
-          const diags = await loadDiagrams(selectedSiteId)
-          setDiagrams(diags)
-          await loadDiagram(result.newId)
+        const { error } = await supabase
+          .from('energy_diagrams')
+          .update({ status: 'draft', updated_at: new Date().toISOString() })
+          .eq('id', diagramId)
+
+        if (error) {
+          showToast('Error al habilitar la edición: ' + error.message, false)
         } else {
-          showToast('Error al clonar el diagrama.', false)
+          useDiagramStore.getState().setStatus('draft')
+          setDiagrams((prev) => prev.map((d) => d.id === diagramId ? { ...d, status: 'draft' } : d))
+          showToast('Edición habilitada. Ahora puedes modificar y guardar este diagrama.', true)
         }
-      },
+      }
     })
   }
+
+
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
@@ -607,12 +608,11 @@ export default function MapaPage() {
                   )}
                   {isPublished && (
                     <button
-                      onClick={handleClone}
-                      disabled={cloning}
-                      className="flex items-center gap-2 w-full px-3 py-2 text-sm text-purple-700 hover:bg-purple-50 cursor-pointer transition-colors disabled:opacity-50"
+                      onClick={handleUnlockForEdit}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-sm text-purple-700 hover:bg-purple-50 cursor-pointer transition-colors"
                     >
-                      <Copy size={14} />
-                      {cloning ? 'Clonando…' : 'Clonar borrador'}
+                      <Pencil size={14} />
+                      Editar diagrama
                     </button>
                   )}
                   <div className="border-t border-gray-100 my-1" />
@@ -636,12 +636,17 @@ export default function MapaPage() {
             </Button>
           )}
 
-          {/* Frozen badge (published) */}
+          {/* Frozen badge & Editar button (published) */}
           {isPublished && (
-            <div className="flex items-center gap-1 text-xs text-emerald-600 border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 rounded-lg">
-              <CheckCircle size={12} />
-              <span>Congelado</span>
-            </div>
+            <>
+              <div className="flex items-center gap-1 text-xs text-emerald-600 border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 rounded-lg">
+                <CheckCircle size={12} />
+                <span>Congelado</span>
+              </div>
+              <Button size="sm" leftIcon={<Pencil size={13} />} onClick={handleUnlockForEdit}>
+                Editar
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -650,7 +655,7 @@ export default function MapaPage() {
       {isPublished && (
         <div className="flex items-center gap-2 px-4 py-1.5 bg-emerald-50 border-b border-emerald-100 text-xs text-emerald-700 shrink-0">
           <CheckCircle size={12} />
-          Diagrama publicado y congelado. Para editar, usa <strong className="mx-0.5">Clonar borrador</strong> desde el menú ···
+          Diagrama publicado y congelado. Para realizar cambios, presiona el botón <strong className="mx-0.5">Editar</strong> en la barra superior.
         </div>
       )}
 

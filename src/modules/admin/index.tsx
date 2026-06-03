@@ -4,8 +4,9 @@ import { SitesView } from './views/SitesView'
 import { RatesView } from './views/RatesView'
 import { UsersView } from './views/UsersView'
 import { SettingsView } from './views/SettingsView'
+import { UnitsManagerView } from './views/UnitsManagerView'
 
-type AdminTab = 'sites' | 'rates' | 'users' | 'settings'
+type AdminTab = 'sites' | 'rates' | 'users' | 'settings' | 'units'
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<AdminTab>('sites')
@@ -13,6 +14,7 @@ export default function AdminPage() {
   const TABS: { id: AdminTab; label: string }[] = [
     { id: 'sites', label: 'Sitios y Organización' },
     { id: 'rates', label: 'Tarifas y Energía' },
+    { id: 'units', label: 'Unidades y Conversión' },
     { id: 'users', label: 'Usuarios y Roles' },
     { id: 'settings', label: 'Parámetros del Sistema' }
   ]
@@ -48,6 +50,7 @@ export default function AdminPage() {
       <div className="flex-1 overflow-y-auto p-8">
         {activeTab === 'sites' && <SitesView />}
         {activeTab === 'rates' && <RatesView />}
+        {activeTab === 'units' && <UnitsManagerView />}
         {activeTab === 'users' && <UsersView />}
         {activeTab === 'settings' && <SettingsView />}
       </div>

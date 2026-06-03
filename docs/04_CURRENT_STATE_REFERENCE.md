@@ -1,316 +1,192 @@
-# VersaEnergy — Referencia del estado actual
+# VersaEnergy — Referencia de estado actual
 
-## Proposito
+> Ultima actualizacion: 2026-06-03.
+>
+> Este documento describe lo ya construido, lo que funciona y las brechas
+> conocidas. Es la fuente de verdad para responder: que existe hoy.
 
-Este documento deja registrada la base que ya existe para que el trabajo futuro
-no vuelva a inventar el backend ni destruya decisiones correctas.
+## Arquitectura de navegacion
 
-La conclusion principal es:
+### Shell asset-tree-first con lentes (post refactor MP-R)
 
-> El backend y la arquitectura de dominio estan razonablemente solidos para una
-> app en construccion. La debilidad esta en flujos de usuario, profundidad de
-> formularios, validaciones visibles, calculos conectados a UI y claridad
-> operacional.
+La navegacion de VersaEnergy NO es un sidebar de modulos independientes. Es
+un shell con arbol de activos persistente a la izquierda y disciplinas
+(modulos) como lentes del activo seleccionado.
 
-## Principios que ya funcionan
+```txt
+┌──────────────────────────────────────────────────────────┐
+│ Header: logo, sitio, utility, periodo                    │
+├─────────────┬────────────────────────────────────────────┤
+│ Asset Tree  │  Barra de lentes                          │
+│ persistente │  [Medicion] [Balance] [EnPI] [Acciones]   │
+│ con busq.   │  [Mapa] [Mantenimiento]                   │
+│ filtro util │                                           │
+│ expand/     │  Contenido del modulo/lente activo         │
+│ collapse    │  filtrado por activo seleccionado          │
+│ contextual  │                                           │
+└─────────────┴────────────────────────────────────────────┘
+```
 
-- Supabase-first, cero mocks en runtime.
-- RLS como requisito para tablas tenant-scoped.
-- Grafo semantico como verdad del mapa.
-- MeasurementPoint como entidad independiente del canvas.
-- Motores puros en `src/services/`, separados de React.
-- Multi-utility desde el modelo, no solo electricidad.
-- Contexto operacional global para sitio, utility y periodo energetico.
-- Fases documentadas y verificables.
-- Guardrails legales para SGEn alineado con ISO 50001.
+Comportamiento:
+
+- Seleccionar un activo en el arbol actualiza `selectedAssetSourceId` y
+  `selectedAssetType` en `uiStore`.
+- Lentes disponibles cambian segun tipo de activo: planta, area, sistema,
+  equipo, medidor.
+- Un equipo muestra Medicion + Balance + Desempeno + Acciones + Mapa +
+  Mantenimiento.
+- Una planta o area muestra Balance + Desempeno + Acciones (scope sitio).
+- Modulos globales (Cockpit, SGEn, Reportes, Admin) no requieren seleccion de
+  activo.
+
+### Modulos como lentes
+
+| Modulo | Tipo | Scope |
+|--------|------|-------|
+| Inicio (Cockpit) | Global | Sitio + periodo + utility |
+| Equipos | Arbol | Arbol completo |
+| Medicion | Lente | Activo seleccionado |
+| Mapa | Global + lente | Diagrama + activo |
+| Balances | Lente | Sitio o activo |
+| Desempeno | Lente | Sitio o activo |
+| Acciones | Lente | Sitio o activo |
+| SGEn | Global | Sitio |
+| Reportes | Global | Sitio |
+| Admin | Global | Empresa |
 
 ## Estado por modulo
 
-### 1. App shell y auth
+### Inicio (Cockpit) ✅
+- 5 tabs operacionales: Ahora, Utilities, Riesgo, Acciones, Tendencias.
+- KPIs calculados en `src/services/cockpit.ts`.
+- Alertas accionables con navegacion a modulo correcto.
+- Graficos de tendencia con Recharts.
 
-Base existente:
+### Equipos (Arbol) ✅
+- Arbol de activos con busqueda, filtro utility, expand/collapse.
+- Ficha de equipo con barra de lentes.
+- MeasurementPoints con wizard de 4 pasos.
+- Vista `assets_compat` para convergencia CMMS.
+- Mantenimiento de medidores con estado de calibracion.
 
-- login/register con Supabase Auth;
-- `AuthProvider`;
-- rutas protegidas;
-- sidebar modular;
-- header operacional con sitio, utility y periodo energetico persistidos;
-- cockpit de Inicio con KPIs, alertas, utilities, acciones y tendencia desde
-  Supabase;
-- shared components (`Button`, `Badge`, `Card`, `Modal`, `PageHeader`,
-  `EmptyState`, `MetricCard`).
+### Mapa ✅
+- Canvas React Flow con paleta, inspector, validaciones.
+- Plantillas por utility (electricidad, vapor, aire, agua, gas).
+- Leyenda viva y overlays (consumo, cobertura, deviaciones).
+- Versionado: draft -> publicar -> clonar.
+- Binding obligatorio para equipos y medidores.
 
-Brechas:
+### Medicion ✅
+- 4 tabs: Captura manual, Import CSV, Calidad, Validadas.
+- Auto-deteccion CSV, mapeo columnas, tracking batch.
+- Calidad por MeasurementPoint.
+- Filtrado por activo seleccionado.
 
-- el contexto global ya gobierna los modulos operativos principales, pero
-  futuras pantallas nuevas deben reutilizarlo en lugar de crear selectores
-  locales;
-- salud/calidad global ya tiene primera version, pero falta enriquecerla con
-  tarifas, factores de emision y reglas de severidad configurables;
-- `admin` todavia no ofrece configuracion real;
-- no existe un onboarding claro para una planta nueva.
+### Balances ✅
+- Wizard 3 pasos: Configurar -> Revisar -> Resultado.
+- Soporte de supuestos de simulacion.
+- CTA cruzado no-explicado -> Acciones.
+- Trazabilidad de version de diagrama.
 
-### 2. Equipos y activos Energy & Utilities
+### Desempeno ✅
+- EnPI con constructor visual de formula.
+- Baselines versionados.
+- Targets con preview en tiempo real.
+- Graficos de tendencia.
 
-Base existente:
+### Acciones ✅
+- Inbox, acciones rapidas medibles y portfolio visual de proyectos.
+- Acciones rapidas con EnPI asociado, M&V, checklist, responsable y evidencia.
+- Workspace de proyecto con Gantt, fases, tareas, presupuesto, responsables,
+  M&V y evidencia.
+- Cierre en dos pasos: implementacion -> monitoreo personalizado
+  (`verification`) -> cierre sostenido (`closed`).
 
-- arbol de planta compatible con CMMS hasta nivel equipo;
-- creacion contextual desde el arbol, siguiendo el patron de VersaMaint;
-- catalogo de utilities;
-- areas;
-- utility systems;
-- equipos;
-- fuentes;
-- MeasurementPoints;
-- migraciones y RLS.
+### SGEn (ISO 50001) ✅
+- Workspace con secciones principales.
+- Evidence Snapshot transversal.
+- Aviso legal visible.
+- No copia texto ISO.
 
-Brechas resueltas (MP-03):
+### Reportes ⚠️ (UI ready, backend pendiente)
+- Builder interactivo funcional.
+- Tipos de reporte: mensual, balance, EnPI, acciones, SGEn.
+- Exportaciones PDF/CSV son mock — falta conectar `@react-pdf/renderer`.
 
-- decision de arquitectura: Energy usa `plant -> area -> system -> equipment`;
-- `component` queda fuera del arbol inicial de Energy y se reserva para
-  taxonomia tecnica del CMMS;
-- primera vista arbol/detalle en Modelo para partir de la estructura de activos;
-- tabs redundantes de areas/sistemas/equipos ocultas como camino principal;
-- alta de medidor desde el arbol crea equipo mantenible bajo subsistema
-  `Medicion` y tambien su MeasurementPoint;
-- MeasurementPoint puede conservar metadata de calibracion, fuente de datos,
-  captura CSV/IoT futura y adjuntos;
-- columnas `integration_key`, `cmms_asset_id`, `sync_status` y
-  `last_synced_at` preparan sincronizacion futura con VersaMaint;
-- modulo visible como `Equipos`, con alias legado `/modelo` redirigido a
-  `/equipos`;
-- ficha de equipo con secciones de informacion, adjuntos, taxonomia,
-  medidores, mapa Energy y compatibilidad CMMS;
-- wizard de alta de MeasurementPoint de 4 pasos: utility → tipo → unidad → vinculacion;
-- `unitCatalog.ts` valida compatibilidad unidad/utility/magnitud;
-- no se permiten target_id dummy;
-- el tag se auto-genera si se deja vacio.
+### Admin ⚠️ (UI ready, backend pendiente)
+- Layout 4 tabs: Sitios, Tarifas, Usuarios, Parametros.
+- Tablas de DB creadas en `00014_admin_settings.sql`.
+- UI tiene datos mock — falta conectar a Supabase JS.
 
-Brechas pendientes:
+## Servicios (engines puros)
 
-- sincronizacion bidireccional real con VersaMaint: hoy la compatibilidad es de
-  estructura y metadata, no actualizacion en vivo entre aplicaciones;
-- acumuladores: campos de rollover y multiplier editables desde UI.
+| Servicio | Ubicacion | Estado |
+|----------|-----------|--------|
+| Topology engine | `src/services/topology-engine/` | ✅ Operativo |
+| Balance engine | `src/services/balance-engine/` | ✅ Operativo |
+| Measurement engine | `src/services/measurement-engine/` | ✅ Operativo |
+| Cockpit KPIs | `src/services/cockpit.ts` | ✅ Operativo |
+| Improvement engine | `src/services/improvement-engine/` | ✅ Operativo |
+| SGEn engine | `src/services/sgen-engine/` | ✅ Operativo |
+| Asset tree | `src/services/asset-tree.ts` | ✅ Operativo |
+| Equipment specs | `src/services/equipmentSpecs.ts` | ✅ Operativo |
+| Diagram versions | `src/services/diagramVersions.ts` | ✅ Operativo |
 
-### 3. Mapa Energy & Utilities
+## Componentes compartidos
 
-Base existente:
+| Componente | Archivo | Estado |
+|------------|---------|--------|
+| AssetTree | `src/shared/AssetTree/index.tsx` | ✅ |
+| AssetDetail (lentes) | `src/shared/AssetLenses/AssetDetail.tsx` | ✅ |
+| AssetMaintenance | `src/shared/AssetLenses/AssetMaintenance.tsx` | ✅ |
+| Button | `src/shared/Button.tsx` | ✅ |
+| Badge | `src/shared/Badge.tsx` | ✅ |
+| Card | `src/shared/Card.tsx` | ✅ |
+| MetricCard | `src/shared/MetricCard.tsx` | ✅ |
+| Modal | `src/shared/Modal.tsx` | ✅ |
+| ConfirmDialog | `src/shared/ConfirmDialog.tsx` | ✅ |
+| Toast | `src/shared/Toast.tsx` | ✅ |
+| FormField | `src/shared/FormField.tsx` | ✅ |
+| EmptyState | `src/shared/EmptyState.tsx` | ✅ |
+| PageHeader | `src/shared/PageHeader.tsx` | ✅ |
+| AlertBanner | `src/shared/AlertBanner.tsx` | ✅ |
+| OnboardingWizard | `src/shared/OnboardingWizard.tsx` | ✅ |
 
-- React Flow;
-- paleta de nodos;
-- nodos y edges por familia;
-- inspector lateral;
-- persistencia en Supabase;
-- servicio de grafo, validacion, queries, versionado y serializacion.
-- flujo draft/publicado/clonar;
-- validacion visible y bloqueo de publicacion con errores;
-- nodos de equipo, area y medicion vinculados al arbol de activos;
-- nodos de medidor vinculados a equipo medidor + MeasurementPoint;
-- aristas fisicas (`cable`, `busbar`, `pipe`, `duct`) separadas de
-  anotaciones (`signal`, `logical`) para no contaminar la topologia;
-- binding profesional de medidor: el nodo visual usa
-  `properties.measurement_binding.measurement_point_id`, se conecta con una
-  arista `signal` como referencia informativa, y ahora puede declarar
-  `properties.measurement_binding.anchor` para quedar anclado a una linea
-  fisica o nodo tecnico;
-- el alcance de balance se resuelve desde el anchor: si es linea, desde el
-  extremo aguas abajo del tramo; si es nodo, desde ese nodo;
-- rol editable de medidor de frontera en el inspector mediante
-  `properties.measurement_binding.role = "boundary"`;
-- seleccion de medidores con resaltado visual del alcance aguas abajo;
-- lineas fisicas muestran taps de medidores anclados para que el diagrama se lea
-  mas cerca de un P&ID/unifilar profesional;
-- seed con cuatro diagramas reales: electrico, vapor, aire comprimido y agua
-  helada.
+## Base de datos
 
-Brechas:
+- 16 migraciones incrementales en `supabase/migrations/`.
+- RLS habilitado en todas las tablas con `company_id`.
+- Helper `get_my_company_id()` para policies.
+- Vista `assets_compat` para convergencia CMMS.
+- Detalle: ver `docs/DATABASE.md`.
 
-- faltan plantillas por utility;
-- faltan overlays persistentes de consumo, cobertura, perdidas y datos
-  faltantes;
-- la leyenda todavia puede evolucionar hacia una herramienta operacional;
-- falta crear equipo medidor + MeasurementPoint directamente desde un drop de
-  mapa cuando el activo todavia no existe.
+## Build
 
-### 4. Medicion
+- `npm run build` pasa sin errores.
+- Warning: chunk `index-*.js` > 500 kB — no bloquea.
 
-Base existente:
+## Brechas conocidas
 
-- lecturas raw;
-- lecturas validadas;
-- import batches;
-- engine de acumuladores;
-- validacion de calidad;
-- import CSV basico;
-- captura manual.
+| Brecha | Severidad | Donde |
+|--------|-----------|-------|
+| Admin UI no conectada a Supabase | Media | `src/modules/admin/` |
+| Reportes PDF/CSV son mock | Media | `src/modules/reportes/` |
+| Convergencia CMMS: escrituras a tablas legacy | Baja | `src/services/asset-tree.ts` |
+| Code splitting para chunks > 500 kB | Baja | `vite.config.ts` |
+| `OperationalContext.tsx` posiblemente huerfano | Baja | `src/shared/` |
+| Inline `fontFamily` residuales en ~15 componentes | Baja | Varios |
+| Seed demo: no existe script completo de planta real | Media | `supabase/seed.sql` falta |
 
-Brechas:
+## Deuda tecnica documentada
 
-- la UI no opera el pipeline raw -> validado -> publicado;
-- falta resolver gaps, duplicados, outliers y unidades incompatibles desde UI;
-- falta trazabilidad por lote de importacion;
-- falta vista de calidad por sitio/utility/punto;
-- falta manejo mas claro de acumuladores, rollover y resets.
+Estas deudas fueron creadas intencionalmente durante el refactor MP-R:
 
-### 5. Balances
-
-Base existente:
-
-- tabla `energy_balances`;
-- `balance-engine`;
-- estructura para total input, medido, calculado, estimado, perdidas,
-  fugas, retornos y no explicado.
-- wizard que ejecuta por utility usando diagramas publicados;
-- compilacion de `energy_diagram_nodes` + `energy_diagram_edges` +
-  `measurement_points` hacia el grafo semantico antes de calcular;
-- lectura de medidores de frontera para `totalInput`;
-- soporte de acumuladores por delta entre lectura anterior y lectura del
-  periodo;
-- conversion explicita de unidades compatibles antes de sumar;
-- proteccion contra doble conteo en medidores anidados: el medidor hijo se
-  muestra como detalle, pero no se suma dos veces contra la entrada total;
-- resultado guardado con `diagram_version_id` cuando existe una version
-  publicada;
-- no explicado protegido contra valores negativos.
-
-Brechas:
-
-- falta vista de supuestos y trazabilidad de cada medicion usada;
-- falta mejorar la asignacion por nodo cuando un submedidor cubre multiples
-  consumidores aguas abajo;
-- falta separar fuente, distribucion, consumidores y retornos con mas detalle
-  operativo;
-- no genera oportunidades desde desviaciones;
-- no muestra overlays sobre el mapa;
-- el wizard todavia no muestra supuestos visibles antes de confirmar.
-
-### 6. Desempeno energetico
-
-Base existente:
-
-- EnPI;
-- baselines;
-- targets;
-- resultados;
-- RLS;
-- UI basica de cards.
-
-Brechas:
-
-- formula de EnPI no se construye visualmente;
-- baseline se captura con `prompt`;
-- falta congelar baseline con version y periodo;
-- falta normalizacion por produccion, clima u otra variable relevante;
-- falta comparacion real vs baseline vs target con accion desde desviacion;
-- falta workflow de revision/aprobacion.
-
-### 7. Acciones y proyectos
-
-Base existente:
-
-- `energy_improvements`;
-- accion rapida vs proyecto;
-- portfolio;
-- Kanban;
-- fases y tareas;
-- metricas de proyecto basicas;
-- base para valor ganado.
-
-Brechas:
-
-- triage aun no calcula confianza/impacto/esfuerzo;
-- falta M&V operativo;
-- falta evidencia de cierre robusta;
-- el workspace de proyecto necesita el lenguaje de VersaProject;
-- faltan recursos, costos reales, cambios, riesgos y documentos;
-- falta integracion mas visible con EnPI, balances, mapa y SGEn.
-
-### 8. SGEn alineado con ISO 50001
-
-Base existente:
-
-- migracion `sgen_*`;
-- alcance;
-- aviso legal;
-- guardrails de lenguaje;
-- dashboard inicial.
-
-Brechas:
-
-- faltan revision energetica, usos significativos, objetivos, evidencia,
-  auditorias, revision gerencial, no conformidades y mejora continua como UI;
-- falta Evidence Inbox;
-- falta scoring de usos significativos;
-- falta paquete de auditoria;
-- falta conectar todo a datos reales del sistema.
-
-### 9. Reportes
-
-Base existente:
-
-- dependencia `@react-pdf/renderer`;
-- plan de reportes;
-- modulo placeholder.
-
-Brechas:
-
-- no hay `reports-engine`;
-- no hay historial de reportes;
-- no hay PDFs/CSV;
-- falta reporte SGEn legalmente seguro;
-- falta export SVG/JSON de diagramas.
-
-### 10. Admin
-
-Base existente:
-
-- ruta y placeholder.
-
-Brechas:
-
-- faltan sitios;
-- usuarios;
-- roles;
-- tarifas;
-- monedas;
-- unidades;
-- factores de conversion;
-- factores de emision;
-- periodos;
-- configuracion legal;
-- parametros de scoring.
-
-## Antipatrones detectados
-
-- `prompt()` para capturar datos importantes.
-- JSON visible para usuarios operativos.
-- `target_id` dummy en MeasurementPoints.
-- pantallas con EmptyState aunque el backend exista;
-- modulos sin workflow;
-- acciones destructivas sin confirmacion contextual;
-- calculos de UI que no usan el engine correspondiente;
-- falta de estado "dato estimado" vs "dato medido" en pantallas clave.
-
-## Lo que no se debe rehacer
-
-- No reescribir el stack.
-- No abandonar Supabase/RLS.
-- No convertir el mapa en un dibujo plano.
-- No fusionar MeasurementPoint con nodos visuales.
-- No mover calculos complejos a React.
-- No copiar textos de ISO.
-- No crear un Microsoft Project completo dentro de Energy.
-- No crear dashboards decorativos sin accion operacional.
-
-## Criterio de madurez futura
-
-Un modulo se considera maduro cuando:
-
-- guia al usuario sobre el siguiente paso;
-- muestra datos faltantes o inconsistentes;
-- tiene empty/loading/error states;
-- evita JSON/prompts en flujos normales;
-- persiste todo en Supabase;
-- conecta con entidades aguas arriba y aguas abajo;
-- ofrece evidencia o historial;
-- compila con `npm run build`.
+1. **Admin mock**: la UI existe pero los formularios no guardan a Supabase.
+   Esto se resuelve en MP-12.
+2. **Reportes mock**: la UI builder existe pero no genera PDF real con
+   `@react-pdf/renderer`. Esto se resuelve en MP-11.
+3. **Medidores PM mock**: la tab de mantenimiento muestra datos mock de
+   calibracion y planes PM. Esto se resuelve cuando exista la integracion
+   CMMS real.
+4. **Cut-over de datos**: `asset-tree.ts` lee de `assets_compat` pero las
+   escrituras van a tablas legacy. Falta script de consolidacion.

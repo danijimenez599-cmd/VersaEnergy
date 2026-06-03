@@ -203,3 +203,11 @@ h1, h2, h3 {
 @media print {
   .no-print { display: none !important; }
 }
+
+/* ── Custom Select Arrow (CMMS Style) ───────────────────────────────── */
+.select-custom {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+  appearance: none;
+}

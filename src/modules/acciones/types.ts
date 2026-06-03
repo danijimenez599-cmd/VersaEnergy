@@ -50,6 +50,10 @@ export interface EnergyImprovement {
   actual_cost_savings?: number
   actual_co2e_savings?: number
   measurement_verification_method?: string
+  monitoring_start?: string
+  monitoring_end?: string
+  monitoring_status?: 'not_started' | 'in_progress' | 'passed' | 'failed'
+  monitoring_notes?: string
 
   identified_at: string
   approved_at?: string

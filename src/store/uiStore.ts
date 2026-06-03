@@ -7,6 +7,7 @@ export interface SiteOption {
 
 interface UIState {
   sidebarOpen: boolean
+  assetTreeOpen: boolean
   activeModule: string
   availableSites: SiteOption[]
   selectedSiteId: string | null
@@ -18,16 +19,25 @@ interface UIState {
   selectedAssetSourceId: string | null
   /** Tipo del activo seleccionado: plant | area | system | equipment */
   selectedAssetType: string | null
+  selectedAssetName: string | null
+  selectedAssetCode: string | null
   activeLens: string
 
   toggleSidebar: () => void
+  toggleAssetTree: () => void
   setActiveModule: (id: string) => void
   setAvailableSites: (sites: SiteOption[]) => void
   setSelectedSiteId: (id: string | null) => void
   setSelectedUtilityType: (type: string | null) => void
   setSelectedPeriod: (period: string) => void
   setSelectedAssetId: (id: string | null) => void
-  setSelectedAsset: (id: string | null, sourceId: string | null, type: string | null) => void
+  setSelectedAsset: (
+    id: string | null,
+    sourceId: string | null,
+    type: string | null,
+    name?: string | null,
+    code?: string | null
+  ) => void
   setActiveLens: (lens: string) => void
 }
 
@@ -83,6 +93,7 @@ const storedContext = loadStoredContext()
 
 export const useUIStore = create<UIState>((set) => ({
   sidebarOpen: true,
+  assetTreeOpen: true,
   activeModule: 'inicio',
   availableSites: [],
   selectedSiteId: storedContext.selectedSiteId,
@@ -91,9 +102,12 @@ export const useUIStore = create<UIState>((set) => ({
   selectedAssetId: null,
   selectedAssetSourceId: null,
   selectedAssetType: null,
+  selectedAssetName: null,
+  selectedAssetCode: null,
   activeLens: 'resumen',
 
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  toggleAssetTree: () => set((s) => ({ assetTreeOpen: !s.assetTreeOpen })),
   setActiveModule: (id) => set({ activeModule: id }),
   setAvailableSites: (sites) =>
     set((state) => {
@@ -140,10 +154,12 @@ export const useUIStore = create<UIState>((set) => ({
       return { selectedPeriod }
     }),
   setSelectedAssetId: (id) => set({ selectedAssetId: id }),
-  setSelectedAsset: (id, sourceId, type) => set({
+  setSelectedAsset: (id, sourceId, type, name = null, code = null) => set({
     selectedAssetId: id,
     selectedAssetSourceId: sourceId,
     selectedAssetType: type,
+    selectedAssetName: name,
+    selectedAssetCode: code,
   }),
   setActiveLens: (lens) => set({ activeLens: lens }),
 }))

@@ -71,6 +71,32 @@ export function Router() {
             }
           >
             <Route
+              path="equipos"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <ModeloPage />
+                </Suspense>
+              }
+            />
+            <Route path="modelo" element={<Navigate to="/equipos" replace />} />
+            <Route
+              path="desempeno"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <DesempenoPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="acciones"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <AccionesPage />
+                </Suspense>
+              }
+            />
+
+            <Route
               element={
                 <Suspense fallback={<PageLoader />}>
                   <AssetDetail />
@@ -80,13 +106,9 @@ export function Router() {
               <Route index element={<Navigate to="resumen" replace />} />
               <Route path="resumen" element={<InicioPage />} />
               <Route path="mapa" element={<MapaPage />} />
-              <Route path="equipos" element={<ModeloPage />} />
-              <Route path="modelo" element={<Navigate to="/equipos" replace />} />
               <Route path="mantenimiento" element={<AssetMaintenance />} />
               <Route path="medicion" element={<MedicionPage />} />
               <Route path="balances" element={<BalancesPage />} />
-              <Route path="desempeno" element={<DesempenoPage />} />
-              <Route path="acciones" element={<AccionesPage />} />
               <Route path="docs" element={<div className="p-8 text-center text-gray-500">Módulo Documentos en construcción</div>} />
             </Route>
 

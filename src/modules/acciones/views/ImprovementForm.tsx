@@ -1,9 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/services/supabase'
 import { Button } from '@/shared/Button'
 import { Card } from '@/shared/Card'
-import { Save } from 'lucide-react'
+import { Save, Target } from 'lucide-react'
 import type { EnergyImprovement, ImprovementWorkType } from '../types'
+
+interface EnpiOption {
+  id: string
+  name: string
+  unit: string
+  utility: string
+}
 
 interface Props {
   siteId: string
@@ -14,6 +21,7 @@ interface Props {
 
 export function ImprovementForm({ siteId, item, onClose, onSave }: Props) {
   const [saving, setSaving] = useState(false)
+  const [enpis, setEnpis] = useState<EnpiOption[]>([])
   const [form, setForm] = useState({
     title: item?.title || '',
     description: item?.description || '',
@@ -28,6 +36,11 @@ export function ImprovementForm({ siteId, item, onClose, onSave }: Props) {
     estimated_investment: item?.estimated_investment || 0,
     currency: item?.currency || 'USD',
     payback_months: item?.payback_months || '',
+    source_enpi_id: item?.source_enpi_id || '',
+    measurement_verification_method: item?.measurement_verification_method || 'before_after',
+    monitoring_start: item?.monitoring_start?.split('T')[0] || '',
+    monitoring_end: item?.monitoring_end?.split('T')[0] || '',
+    monitoring_notes: item?.monitoring_notes || '',
     owner_id: item?.owner_id || '',
     department: item?.department || '',
     planned_start: item?.planned_start?.split('T')[0] || '',
@@ -35,6 +48,16 @@ export function ImprovementForm({ siteId, item, onClose, onSave }: Props) {
     scope: item?.project?.scope || '',
     business_case: item?.project?.business_case || '',
   })
+
+  useEffect(() => {
+    supabase
+      .from('energy_enpis')
+      .select('id,name,unit,utility')
+      .eq('site_id', siteId)
+      .eq('is_active', true)
+      .order('name')
+      .then(({ data }) => setEnpis((data || []) as EnpiOption[]))
+  }, [siteId])
 
   async function handleSave() {
     setSaving(true)
@@ -53,6 +76,11 @@ export function ImprovementForm({ siteId, item, onClose, onSave }: Props) {
       estimated_investment: form.estimated_investment,
       currency: form.currency,
       payback_months: form.payback_months ? Number(form.payback_months) : null,
+      source_enpi_id: form.source_enpi_id || null,
+      measurement_verification_method: form.measurement_verification_method || null,
+      monitoring_start: form.monitoring_start || null,
+      monitoring_end: form.monitoring_end || null,
+      monitoring_notes: form.monitoring_notes || null,
       owner_id: form.owner_id || null,
       department: form.department || null,
       planned_start: form.planned_start || null,
@@ -156,6 +184,68 @@ export function ImprovementForm({ siteId, item, onClose, onSave }: Props) {
               <input type="number" value={form.payback_months} onChange={(e) => setForm({ ...form, payback_months: e.target.value })}
                 className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
             </div>
+          </div>
+
+          <p className="text-xs font-semibold text-gray-500 pt-2">Medición de impacto</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">EnPI asociado</label>
+              <select
+                value={form.source_enpi_id}
+                onChange={(e) => {
+                  const enpi = enpis.find((candidate) => candidate.id === e.target.value)
+                  setForm({
+                    ...form,
+                    source_enpi_id: e.target.value,
+                    utility: enpi?.utility || form.utility,
+                    savings_unit: enpi?.unit || form.savings_unit,
+                  })
+                }}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-surface cursor-pointer"
+              >
+                <option value="">Sin EnPI asociado</option>
+                {enpis.map((enpi) => (
+                  <option key={enpi.id} value={enpi.id}>{enpi.name} · {enpi.unit}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Método M&V</label>
+              <select
+                value={form.measurement_verification_method}
+                onChange={(e) => setForm({ ...form, measurement_verification_method: e.target.value })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-surface cursor-pointer"
+              >
+                <option value="before_after">Antes / después</option>
+                <option value="baseline_model">Modelo baseline</option>
+                <option value="metered">Medido con medidor</option>
+                <option value="engineering_estimate">Estimación ingeniería</option>
+              </select>
+            </div>
+          </div>
+          <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">
+            <Target size={12} className="mr-1 inline" />
+            Asociar un EnPI permite comparar la acción contra baseline, evidenciar impacto y mostrarla en el centro técnico de EnPIs.
+          </div>
+
+          <p className="text-xs font-semibold text-gray-500 pt-2">Periodo de monitoreo posterior</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Inicio monitoreo</label>
+              <input type="date" value={form.monitoring_start} onChange={(e) => setForm({ ...form, monitoring_start: e.target.value })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Fin monitoreo</label>
+              <input type="date" value={form.monitoring_end} onChange={(e) => setForm({ ...form, monitoring_end: e.target.value })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Criterio de sostenimiento</label>
+            <textarea value={form.monitoring_notes} onChange={(e) => setForm({ ...form, monitoring_notes: e.target.value })}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20" rows={2}
+              placeholder="Ej. Mantener el EnPI por debajo del objetivo durante 30 días operativos." />
           </div>
 
           {form.work_type === 'project' && (

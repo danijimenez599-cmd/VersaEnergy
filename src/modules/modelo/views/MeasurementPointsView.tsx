@@ -9,6 +9,7 @@ import { supabase } from '@/services/supabase'
 import {
   getAllowedQuantities,
   getAllowedUnits,
+  getAllUnitsFromCatalog,
   getDefaultUnit,
   isUnitCompatible,
   suggestTag,
@@ -643,12 +644,15 @@ function MpWizard({
                   ))}
                 </div>
               ) : (
-                <input
+                <select
                   value={form.unit}
                   onChange={(e) => set({ unit: e.target.value })}
-                  className="w-full px-3 py-2 border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                  placeholder="Ej: kWh"
-                />
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/20 bg-white"
+                >
+                  {getAllUnitsFromCatalog().map((u) => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
               )}
               {!unitCompatible && form.unit && (
                 <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">

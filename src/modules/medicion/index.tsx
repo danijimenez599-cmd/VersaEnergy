@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { inputClass } from '@/shared/FormField'
 import { supabase } from '@/services/supabase'
 import { Button } from '@/shared/Button'
 import { Badge } from '@/shared/Badge'
@@ -18,6 +19,7 @@ interface MP {
   id: string; tag: string; name: string; utility: string
   measurement_type: string; quantity: string; unit: string
   accumulator_config: Record<string, unknown>
+  source_type: string
 }
 
 interface RawReading {
@@ -155,7 +157,13 @@ export default function MedicionPage() {
       </div>
 
       {activeTab === 'capture' && (
-        <CaptureTab point={point} onSave={loadReadings} rawReadings={rawReadings} loading={loading} />
+        <CaptureTab
+          point={point}
+          points={points}
+          onSave={loadReadings}
+          rawReadings={rawReadings}
+          loading={loading}
+        />
       )}
       {activeTab === 'imports' && (
         <ImportsTab points={points} siteId={selectedSiteId || ''} batches={batches} onImportComplete={() => { loadReadings(); loadBatches() }} />
@@ -172,19 +180,49 @@ export default function MedicionPage() {
 
 // ─── Tab: Captura ─────────────────────────────────────────────────────────────
 
-function CaptureTab({ point, onSave, rawReadings, loading }: {
-  point: MP | undefined; onSave: () => void
-  rawReadings: RawReading[]; loading: boolean
+function CaptureTab({
+  point,
+  points,
+  onSave,
+  rawReadings,
+  loading,
+}: {
+  point: MP | undefined
+  points: MP[]
+  onSave: () => void
+  rawReadings: RawReading[]
+  loading: boolean
 }) {
+  const [subTab, setSubTab] = useState<'individual' | 'routine'>('individual')
+
+  // --- Individual Reading State ---
   const [value, setValue] = useState('')
   const [timestamp, setTimestamp] = useState(new Date().toISOString().slice(0, 16))
   const [saving, setSaving] = useState(false)
   const [deltaPreview, setDeltaPreview] = useState<number | null>(null)
 
-  // Preview delta for accumulators
+  // --- Routine Reading State ---
+  const [routineTimestamp, setRoutineTimestamp] = useState(new Date().toISOString().slice(0, 16))
+  const [values, setValues] = useState<Record<string, string>>({})
+  const [latestReadings, setLatestReadings] = useState<Record<string, { value: number; timestamp: string }>>({})
+  const [loadingLatest, setLoadingLatest] = useState(false)
+  const [savingRoutine, setSavingRoutine] = useState(false)
+  const [routineSuccess, setRoutineSuccess] = useState(false)
+
+  // Filter manual points
+  const manualPoints = useMemo(() => {
+    return points.filter((p) => p.source_type === 'manual')
+  }, [points])
+
+  // Preview delta for single accumulator
   useEffect(() => {
-    if (!point || point.measurement_type !== 'accumulator' || !value) { setDeltaPreview(null); return }
-    const sorted = [...rawReadings].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    if (!point || point.measurement_type !== 'accumulator' || !value) {
+      setDeltaPreview(null)
+      return
+    }
+    const sorted = [...rawReadings].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    )
     const last = sorted[0]?.value
     if (last !== undefined) {
       const curr = parseFloat(value)
@@ -193,91 +231,410 @@ function CaptureTab({ point, onSave, rawReadings, loading }: {
     }
   }, [value, rawReadings, point])
 
-  if (!point) return <EmptyState title="Selecciona un punto" description="Elige un punto de medición para ingresar lecturas." />
+  // Fetch latest readings for routine
+  useEffect(() => {
+    if (subTab !== 'routine' || manualPoints.length === 0) return
+
+    async function fetchLatest() {
+      setLoadingLatest(true)
+      const { data } = await supabase
+        .from('energy_readings_raw')
+        .select('measurement_point_id, value, timestamp')
+        .in('measurement_point_id', manualPoints.map((p) => p.id))
+        .order('timestamp', { ascending: false })
+
+      if (data) {
+        const map: Record<string, { value: number; timestamp: string }> = {}
+        for (const r of data) {
+          if (!map[r.measurement_point_id]) {
+            map[r.measurement_point_id] = { value: Number(r.value), timestamp: r.timestamp }
+          }
+        }
+        setLatestReadings(map)
+      }
+      setLoadingLatest(false)
+    }
+
+    fetchLatest()
+  }, [subTab, manualPoints])
 
   async function handleSave() {
     const v = parseFloat(value)
     if (isNaN(v)) return
     setSaving(true)
-    await supabase.from('energy_readings_raw').upsert({
-      measurement_point_id: point!.id,
-      timestamp: new Date(timestamp).toISOString(),
-      value: v, unit: point!.unit, source: 'manual',
-    }, { onConflict: 'measurement_point_id, timestamp' })
-    setValue(''); setSaving(false); onSave()
+    await supabase.from('energy_readings_raw').upsert(
+      {
+        measurement_point_id: point!.id,
+        timestamp: new Date(timestamp).toISOString(),
+        value: v,
+        unit: point!.unit,
+        source: 'manual',
+      },
+      { onConflict: 'measurement_point_id, timestamp' }
+    )
+    setValue('')
+    setSaving(false)
+    onSave()
+  }
+
+  async function handleSaveRoutine() {
+    const rows = Object.entries(values)
+      .filter(([_, val]) => val.trim() !== '')
+      .map(([pointId, val]) => {
+        const pt = manualPoints.find((p) => p.id === pointId)
+        return {
+          measurement_point_id: pointId,
+          timestamp: new Date(routineTimestamp).toISOString(),
+          value: parseFloat(val),
+          unit: pt?.unit || '',
+          source: 'manual',
+        }
+      })
+
+    if (rows.length === 0) return
+    setSavingRoutine(true)
+    setRoutineSuccess(false)
+
+    const { error } = await supabase.from('energy_readings_raw').upsert(rows, {
+      onConflict: 'measurement_point_id, timestamp',
+    })
+
+    setSavingRoutine(false)
+    if (error) {
+      console.error('Error saving readings:', error)
+    } else {
+      setValues({})
+      setRoutineSuccess(true)
+      onSave()
+
+      // Reload latest readings
+      const { data } = await supabase
+        .from('energy_readings_raw')
+        .select('measurement_point_id, value, timestamp')
+        .in('measurement_point_id', manualPoints.map((p) => p.id))
+        .order('timestamp', { ascending: false })
+
+      if (data) {
+        const map: Record<string, { value: number; timestamp: string }> = {}
+        for (const r of data) {
+          if (!map[r.measurement_point_id]) {
+            map[r.measurement_point_id] = { value: Number(r.value), timestamp: r.timestamp }
+          }
+        }
+        setLatestReadings(map)
+      }
+
+      setTimeout(() => setRoutineSuccess(false), 3000)
+    }
   }
 
   const isNegativeDelta = deltaPreview !== null && deltaPreview < 0
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Card>
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Nueva lectura — {point.unit}</h3>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+    <div className="space-y-4">
+      {/* Sub-tab selection */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setSubTab('individual')}
+          className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+            subTab === 'individual'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'
+          }`}
+        >
+          Lectura Individual
+        </button>
+        <button
+          onClick={() => setSubTab('routine')}
+          className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+            subTab === 'routine'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'
+          }`}
+        >
+          Rutina de Medición (Lote)
+        </button>
+      </div>
+
+      {subTab === 'individual' ? (
+        !point ? (
+          <EmptyState
+            title="Selecciona un punto"
+            description="Elige un punto de medición para ingresar lecturas."
+          />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                Nueva lectura — {point.unit}
+              </h3>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Fecha y hora</label>
+                    <input
+                      type="datetime-local"
+                      value={timestamp}
+                      onChange={(e) => setTimestamp(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Valor ({point.unit})</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={value}
+                      onChange={(e) => setValue(e.target.value)}
+                      className={`${inputClass} font-mono`}
+                    />
+                  </div>
+                </div>
+
+                {point.measurement_type === 'accumulator' && deltaPreview !== null && (
+                  <div
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+                      isNegativeDelta
+                        ? 'bg-red-50 border border-red-100 text-red-700'
+                        : 'bg-emerald-50 border border-emerald-100 text-emerald-700'
+                    }`}
+                  >
+                    {isNegativeDelta ? <AlertTriangle size={12} /> : <CheckCircle size={12} />}
+                    Delta calculado: {deltaPreview > 0 ? '+' : ''}
+                    {deltaPreview.toFixed(3)} {point.unit}
+                    {isNegativeDelta && ' — posible reset o lectura incorrecta'}
+                  </div>
+                )}
+
+                <Button
+                  size="sm"
+                  leftIcon={<Save size={14} />}
+                  onClick={handleSave}
+                  loading={saving}
+                >
+                  Guardar lectura
+                </Button>
+              </div>
+            </Card>
+
+            {/* Recent raw readings */}
+            <Card padding="none">
+              <div className="px-4 py-3 border-b border-border">
+                <p className="text-sm font-semibold text-gray-700">Lecturas recientes</p>
+              </div>
+              {loading ? (
+                <div className="py-8 text-center text-sm text-gray-400">Cargando...</div>
+              ) : rawReadings.length === 0 ? (
+                <div className="py-8 text-center text-sm text-gray-400">
+                  Sin lecturas en el periodo
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-gray-50/50">
+                      <th className="text-left px-4 py-2 text-xs font-medium text-gray-600">Fecha</th>
+                      <th className="text-right px-4 py-2 text-xs font-medium text-gray-600">
+                        Valor
+                      </th>
+                      <th className="text-left px-4 py-2 text-xs font-medium text-gray-600">
+                        Fuente
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rawReadings.slice(0, 10).map((r) => (
+                      <tr key={r.id} className="border-b border-border/50 hover:bg-gray-50/30">
+                        <td className="px-4 py-2 text-gray-600 text-xs">
+                          {new Date(r.timestamp).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 font-mono font-medium text-gray-800 text-right">
+                          {Number(r.value).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2">
+                          <Badge
+                            color={
+                              r.source === 'manual'
+                                ? 'blue'
+                                : r.source === 'csv_import'
+                                ? 'teal'
+                                : 'gray'
+                            }
+                            size="sm"
+                          >
+                            {r.source}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Card>
+          </div>
+        )
+      ) : manualPoints.length === 0 ? (
+        <EmptyState
+          title="Sin medidores manuales"
+          description="No se encontraron puntos de medición de tipo manual en este sitio o utility."
+        />
+      ) : (
+        <Card className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Fecha y hora</label>
-              <input type="datetime-local" value={timestamp} onChange={(e) => setTimestamp(e.target.value)}
-                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+              <h3 className="text-sm font-bold text-slate-900">
+                Planilla de Rutina Diaria / Turno
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Ingresa los datos para los {manualPoints.length} medidores manuales del sitio.
+              </p>
             </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Valor ({point.unit})</label>
-              <input type="number" step="any" value={value} onChange={(e) => setValue(e.target.value)}
-                className="w-full px-3 py-2 border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-500 font-bold uppercase tracking-wider">
+                Fecha/Hora Toma:
+              </label>
+              <input
+                type="datetime-local"
+                value={routineTimestamp}
+                onChange={(e) => setRoutineTimestamp(e.target.value)}
+                className={`${inputClass} max-w-[200px]`}
+              />
             </div>
           </div>
 
-          {/* Delta preview for accumulators */}
-          {point.measurement_type === 'accumulator' && deltaPreview !== null && (
-            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
-              isNegativeDelta ? 'bg-red-50 border border-red-100 text-red-700' : 'bg-emerald-50 border border-emerald-100 text-emerald-700'
-            }`}>
-              {isNegativeDelta ? <AlertTriangle size={12} /> : <CheckCircle size={12} />}
-              Delta calculado: {deltaPreview > 0 ? '+' : ''}{deltaPreview.toFixed(3)} {point.unit}
-              {isNegativeDelta && ' — posible reset o lectura incorrecta'}
+          {loadingLatest ? (
+            <div className="py-8 text-center text-sm text-gray-400">
+              Cargando últimas lecturas...
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/50">
+                    <th className="text-left px-3 py-2.5 font-bold uppercase tracking-wider text-slate-500 w-32">
+                      TAG
+                    </th>
+                    <th className="text-left px-3 py-2.5 font-bold uppercase tracking-wider text-slate-500">
+                      Medidor / Ubicación
+                    </th>
+                    <th className="text-right px-3 py-2.5 font-bold uppercase tracking-wider text-slate-500 w-36">
+                      Lectura Anterior
+                    </th>
+                    <th className="text-right px-3 py-2.5 font-bold uppercase tracking-wider text-slate-500 w-44">
+                      Nueva Lectura
+                    </th>
+                    <th className="text-center px-3 py-2.5 font-bold uppercase tracking-wider text-slate-500 w-24">
+                      Diferencia
+                    </th>
+                    <th className="text-left px-3 py-2.5 font-bold uppercase tracking-wider text-slate-500 w-20">
+                      Unidad
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {manualPoints.map((p) => {
+                    const prev = latestReadings[p.id]
+                    const val = values[p.id] || ''
+                    const delta = prev && val ? parseFloat(val) - prev.value : null
+                    const isNegDelta = delta !== null && delta < 0
+
+                    return (
+                      <tr key={p.id} className="hover:bg-slate-50/50">
+                        <td className="px-3 py-3 font-mono font-bold text-brand-blue">
+                          {p.tag}
+                        </td>
+                        <td className="px-3 py-3">
+                          <p className="font-semibold text-slate-700 leading-tight">{p.name}</p>
+                          <p className="text-[10px] text-slate-400 font-medium capitalize mt-0.5">
+                            {p.measurement_type} · {p.quantity}
+                          </p>
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {prev ? (
+                            <div>
+                              <p className="font-mono font-semibold text-slate-600">
+                                {prev.value.toLocaleString()}
+                              </p>
+                              <p className="text-[9px] text-slate-400 font-medium mt-0.5">
+                                {new Date(prev.timestamp).toLocaleString(undefined, {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 italic">Sin datos</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <input
+                            type="number"
+                            step="any"
+                            value={val}
+                            onChange={(e) =>
+                              setValues((prevVals) => ({ ...prevVals, [p.id]: e.target.value }))
+                            }
+                            placeholder="Ingrese lectura"
+                            className={`${inputClass} text-right font-mono max-w-[140px] ml-auto`}
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          {delta !== null ? (
+                            <span
+                              className={`font-mono font-bold text-[10px] px-1.5 py-0.5 rounded ${
+                                isNegDelta
+                                  ? 'bg-red-50 text-red-600 border border-red-100'
+                                  : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                              }`}
+                            >
+                              {delta >= 0 ? '+' : ''}
+                              {delta.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 font-mono">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-slate-500 font-mono font-bold">
+                          {p.unit}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
 
-          <Button size="sm" leftIcon={<Save size={14} />} onClick={handleSave} loading={saving}>
-            Guardar lectura
-          </Button>
-        </div>
-      </Card>
+          {routineSuccess && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-bold text-emerald-800 flex items-center gap-2">
+              <CheckCircle size={14} />
+              Lecturas guardadas exitosamente en lote.
+            </div>
+          )}
 
-      {/* Recent raw readings */}
-      <Card padding="none">
-        <div className="px-4 py-3 border-b border-border">
-          <p className="text-sm font-semibold text-gray-700">Lecturas recientes</p>
-        </div>
-        {loading ? (
-          <div className="py-8 text-center text-sm text-gray-400">Cargando...</div>
-        ) : rawReadings.length === 0 ? (
-          <div className="py-8 text-center text-sm text-gray-400">Sin lecturas en el periodo</div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-gray-50/50">
-                <th className="text-left px-4 py-2 text-xs font-medium text-gray-600">Fecha</th>
-                <th className="text-right px-4 py-2 text-xs font-medium text-gray-600">Valor</th>
-                <th className="text-left px-4 py-2 text-xs font-medium text-gray-600">Fuente</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rawReadings.slice(0, 10).map((r) => (
-                <tr key={r.id} className="border-b border-border/50 hover:bg-gray-50/30">
-                  <td className="px-4 py-2 text-gray-600 text-xs">{new Date(r.timestamp).toLocaleString()}</td>
-                  <td className="px-4 py-2 font-mono font-medium text-gray-800 text-right">{Number(r.value).toLocaleString()}</td>
-                  <td className="px-4 py-2">
-                    <Badge color={r.source === 'manual' ? 'blue' : r.source === 'csv_import' ? 'teal' : 'gray'} size="sm">
-                      {r.source}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+            <Button
+              variant="outline"
+              onClick={() => setValues({})}
+              disabled={savingRoutine || Object.keys(values).length === 0}
+            >
+              Limpiar Planilla
+            </Button>
+            <Button
+              onClick={handleSaveRoutine}
+              loading={savingRoutine}
+              disabled={Object.values(values).every((v) => v.trim() === '')}
+              leftIcon={<Save size={14} />}
+            >
+              Guardar Rutina
+            </Button>
+          </div>
+        </Card>
+      )}
     </div>
   )
 }

@@ -1,9 +1,22 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { supabase } from '@/services/supabase'
 import { Card } from '@/shared/Card'
 import { Badge } from '@/shared/Badge'
 import { Button } from '@/shared/Button'
-import { ArrowLeft, Plus, CheckSquare, BarChart2, TrendingDown } from 'lucide-react'
+import {
+  ArrowLeft,
+  Banknote,
+  BarChart2,
+  CalendarClock,
+  CheckCircle2,
+  FileUp,
+  Gauge,
+  Plus,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  Users,
+} from 'lucide-react'
 import { GanttChart } from '../components/GanttChart'
 import { TaskForm } from '../components/TaskForm'
 import type { TaskFormData } from '../components/TaskForm'
@@ -20,8 +33,7 @@ interface Props {
 
 const TABS = [
   { id: 'overview', label: 'Resumen' },
-  { id: 'gantt',    label: 'Plan / Gantt' },
-  { id: 'tasks',    label: 'Tareas' },
+  { id: 'gantt',    label: 'Plan de Trabajo' },
   { id: 'm_and_v',  label: 'M&V (Monitoreo)' },
   { id: 'closeout', label: 'Cierre' },
 ]
@@ -31,10 +43,16 @@ const TABS = [
 export function ImprovementProjectWorkspace({ item, onBack }: Props) {
   const [phases, setPhases] = useState<EnergyProjectPhase[]>([])
   const [tasks,  setTasks]  = useState<EnergyProjectTask[]>([])
+  const [evidenceCount, setEvidenceCount] = useState(0)
+  const [enpiName, setEnpiName] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('gantt')
   const [closeoutForm, setCloseoutForm] = useState({
     actual_energy_savings: item.actual_energy_savings?.toString() || '',
     actual_cost_savings: item.actual_cost_savings?.toString() || '',
+    monitoring_start: item.monitoring_start?.split('T')[0] || new Date().toISOString().slice(0, 10),
+    monitoring_end: item.monitoring_end?.split('T')[0] || defaultMonitoringEnd(),
+    monitoring_notes: item.monitoring_notes || '',
+    monitoring_status: item.monitoring_status || 'in_progress',
   })
   const [savingCloseout, setSavingCloseout] = useState(false)
 
@@ -52,6 +70,14 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
       .then(({ data }) => setPhases(data || []))
     supabase.from('energy_project_tasks').select('*').eq('improvement_id', item.id)
       .then(({ data }) => setTasks(data || []))
+    supabase.from('energy_improvement_evidence').select('*', { count: 'exact', head: true }).eq('improvement_id', item.id)
+      .then(({ count }) => setEvidenceCount(count || 0))
+    if (item.source_enpi_id) {
+      supabase.from('energy_enpis').select('name,unit').eq('id', item.source_enpi_id).single()
+        .then(({ data }) => setEnpiName(data ? `${data.name} · ${data.unit}` : null))
+    } else {
+      setEnpiName(null)
+    }
   }, [item.id])
 
   // ── Phase helpers ──────────────────────────────────────────────────────────
@@ -127,10 +153,17 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
 
   async function handleCloseout() {
     setSavingCloseout(true)
+    const closingAfterMonitoring = item.status === 'verification'
     await supabase.from('energy_improvements').update({
       actual_energy_savings: closeoutForm.actual_energy_savings ? parseFloat(closeoutForm.actual_energy_savings) : null,
       actual_cost_savings: closeoutForm.actual_cost_savings ? parseFloat(closeoutForm.actual_cost_savings) : null,
-      status: 'closed', updated_at: new Date().toISOString(),
+      actual_finish: closingAfterMonitoring ? (item.actual_finish || new Date().toISOString()) : item.actual_finish || null,
+      monitoring_start: closeoutForm.monitoring_start || null,
+      monitoring_end: closeoutForm.monitoring_end || null,
+      monitoring_notes: closeoutForm.monitoring_notes || null,
+      monitoring_status: closingAfterMonitoring ? 'passed' : 'in_progress',
+      status: closingAfterMonitoring ? 'closed' : 'verification',
+      updated_at: new Date().toISOString(),
     }).eq('id', item.id)
     setSavingCloseout(false)
   }
@@ -139,34 +172,52 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  const completedTasks = tasks.filter((task) => task.status === 'completed').length
+  const phaseBudget = phases.reduce((sum, phase) => sum + Number(phase.budget || 0), 0)
+  const budget = phaseBudget || Number(item.estimated_investment || 0)
+
   return (
-    <div>
+    <div className="space-y-4">
       {/* Back */}
-      <button onClick={onBack} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4 cursor-pointer">
+      <button onClick={onBack} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 cursor-pointer">
         <ArrowLeft size={14} /> Volver al portfolio
       </button>
 
       {/* Header */}
-      <div className="flex items-start justify-between mb-4 gap-4">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-semibold text-gray-900 truncate">{item.title}</h2>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <Badge color={STATUS_COLORS[item.status] as 'blue'} size="sm">{STATUS_LABELS[item.status]}</Badge>
-            <Badge color="teal" size="sm">{item.utility}</Badge>
-            <span className="text-xs text-gray-500">{item.currency} {item.estimated_investment?.toLocaleString()}</span>
+      <section className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-950 px-4 py-3 text-white">
+        <div className="absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(circle_at_70%_30%,rgba(34,197,94,0.22),transparent_34%),radial-gradient(circle_at_42%_70%,rgba(14,165,233,0.18),transparent_30%)]" />
+        <div className="relative z-10 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="mb-2 flex items-center gap-2 flex-wrap">
+              <Badge color={STATUS_COLORS[item.status] as 'blue'} size="sm">{STATUS_LABELS[item.status]}</Badge>
+              <Badge color="teal" size="sm">{item.utility}</Badge>
+              <Badge color="gray" size="sm">{item.priority}</Badge>
+            </div>
+            <h2 className="truncate text-xl font-black tracking-tight">{item.title}</h2>
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-300">
+              {item.description || 'Proyecto de mejora energética con Gantt, presupuesto, responsables, evidencia y verificación de impacto.'}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:w-[560px]">
+            <WorkspaceMetric icon={<Gauge size={14} />} label="Avance" value={`${overallProgress}%`} />
+            <WorkspaceMetric icon={<Banknote size={14} />} label="Presupuesto" value={`${item.currency} ${budget.toLocaleString()}`} />
+            <WorkspaceMetric icon={<TrendingUp size={14} />} label="Ahorro" value={`${Number(item.estimated_energy_savings || 0).toLocaleString()} ${item.savings_unit || ''}`} />
+            <WorkspaceMetric icon={<FileUp size={14} />} label="Evidencia" value={String(evidenceCount)} />
           </div>
         </div>
-        <div className="text-right shrink-0">
-          <p className="text-xs text-gray-500">Avance general</p>
-          <p className="text-2xl font-bold text-gray-800">{overallProgress}%</p>
-          <div className="w-32 h-1.5 bg-gray-200 rounded-full mt-1">
-            <div className="h-full bg-brand-teal rounded-full transition-all" style={{ width: overallProgress + '%' }} />
-          </div>
-        </div>
+      </section>
+
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+        <SignalCard icon={<Target size={14} />} label="EnPI asociado" value={enpiName || 'Sin EnPI'} />
+        <SignalCard icon={<Users size={14} />} label="Responsable" value={item.owner_id ? 'Asignado' : 'Pendiente'} />
+        <SignalCard icon={<CalendarClock size={14} />} label="Plan" value={item.planned_start && item.planned_finish ? `${new Date(item.planned_start).toLocaleDateString()} - ${new Date(item.planned_finish).toLocaleDateString()}` : 'Sin fechas'} />
+        <SignalCard icon={<CheckCircle2 size={14} />} label="Tareas" value={`${completedTasks}/${tasks.length}`} />
+        <SignalCard icon={<BarChart2 size={14} />} label="M&V" value={item.measurement_verification_method || 'Pendiente'} />
+        <SignalCard icon={<CalendarClock size={14} />} label="Monitoreo" value={item.monitoring_end ? `hasta ${new Date(item.monitoring_end).toLocaleDateString()}` : 'Por definir'} />
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-border mb-4">
+      <div className="border-b border-border">
         <nav className="flex gap-1 -mb-px">
           {TABS.map((t) => (
             <button key={t.id} onClick={() => setActiveTab(t.id)}
@@ -219,51 +270,8 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
           onAddTask={(phaseId) => setTaskModal({ open: true, isPhase: false, phaseId })}
           onEditTask={(task) => setTaskModal({ open: true, isPhase: false, editing: task })}
           onEditPhase={(phase) => setTaskModal({ open: true, isPhase: true, editingPhase: phase })}
+          onToggleTask={toggleTask}
         />
-      )}
-
-      {/* ── Tab: Tareas ─────────────────────────────────────────────── */}
-      {activeTab === 'tasks' && (
-        <div>
-          <div className="flex justify-end mb-3">
-            <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setTaskModal({ open: true, isPhase: false })}>
-              Nueva tarea
-            </Button>
-          </div>
-          <div className="space-y-2">
-            {tasks.length === 0 && (
-              <div className="py-8 text-center text-sm text-gray-400">Sin tareas. Crea una desde el Gantt o aquí.</div>
-            )}
-            {tasks.map((t) => {
-              const phase = phases.find((p) => p.id === t.phase_id)
-              return (
-                <Card key={t.id} padding="sm">
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => toggleTask(t)}
-                      className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 cursor-pointer transition-colors ${
-                        t.status === 'completed' ? 'bg-emerald-500 border-emerald-500 text-white' :
-                        t.status === 'in_progress' ? 'border-brand-teal' : 'border-gray-300'
-                      }`}>
-                      {t.status === 'completed' && <CheckSquare size={12} />}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm ${t.status === 'completed' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-                        {t.title}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {phase && <span className="text-[10px] text-purple-600">{phase.name}</span>}
-                        {t.planned_date && <span className="text-[10px] text-gray-400">{new Date(t.planned_date).toLocaleDateString()}</span>}
-                      </div>
-                    </div>
-                    <Badge size="sm" color={t.status === 'completed' ? 'green' : t.status === 'in_progress' ? 'teal' : 'gray'}>
-                      {t.status === 'completed' ? 'Hecho' : t.status === 'in_progress' ? 'En progreso' : 'Pendiente'}
-                    </Badge>
-                  </div>
-                </Card>
-              )
-            })}
-          </div>
-        </div>
       )}
 
       {/* ── Tab: M&V (Monitoreo y Verificación) ────────────────────────────────── */}
@@ -321,9 +329,12 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
       {activeTab === 'closeout' && (
         <Card>
           <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <TrendingDown size={15} className="text-emerald-500" /> Cierre de proyecto
+            <TrendingDown size={15} className="text-emerald-500" /> Monitoreo y cierre de mejora
           </h3>
-          <div className="space-y-4 max-w-sm">
+          <div className="mb-4 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-700">
+            Primero se inicia un periodo de monitoreo personalizado para comprobar que la mejora se sostiene. El cierre final ocurre cuando la verificación de eficacia pasa ese periodo.
+          </div>
+          <div className="space-y-4 max-w-xl">
             <div>
               <label className="block text-xs text-gray-500 mb-1">
                 Ahorro real de energía ({item.savings_unit})
@@ -352,8 +363,30 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
                 <span className="text-sm text-gray-400">{item.currency}</span>
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Inicio monitoreo</label>
+                <input type="date" value={closeoutForm.monitoring_start}
+                  onChange={(e) => setCloseoutForm({ ...closeoutForm, monitoring_start: e.target.value })}
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Fin monitoreo</label>
+                <input type="date" value={closeoutForm.monitoring_end}
+                  onChange={(e) => setCloseoutForm({ ...closeoutForm, monitoring_end: e.target.value })}
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Criterio / notas de sostenimiento</label>
+              <textarea value={closeoutForm.monitoring_notes}
+                onChange={(e) => setCloseoutForm({ ...closeoutForm, monitoring_notes: e.target.value })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                rows={3}
+                placeholder="Ej. Confirmar que el EnPI permanece bajo objetivo durante el periodo y que no hay regresión operativa." />
+            </div>
             <Button size="sm" onClick={handleCloseout} loading={savingCloseout}>
-              Registrar cierre
+              {item.status === 'verification' ? 'Cerrar mejora sostenida' : 'Iniciar monitoreo'}
             </Button>
           </div>
         </Card>
@@ -389,4 +422,31 @@ function InfoRow({ label, value, green = false }: { label: string; value: string
       <span className={`font-medium ${green ? 'text-emerald-600' : 'text-gray-800'}`}>{value}</span>
     </div>
   )
+}
+
+function WorkspaceMetric({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/10 px-3 py-2">
+      <p className="mb-1 flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-slate-300">{icon}{label}</p>
+      <p className="truncate text-sm font-black text-white">{value}</p>
+    </div>
+  )
+}
+
+function SignalCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <Card padding="sm" className="rounded-xl border-slate-200">
+      <div className="mb-1.5 flex items-center gap-1.5 text-slate-400">
+        {icon}
+        <p className="text-[9px] font-black uppercase tracking-widest">{label}</p>
+      </div>
+      <p className="truncate text-xs font-black text-slate-900">{value}</p>
+    </Card>
+  )
+}
+
+function defaultMonitoringEnd() {
+  const d = new Date()
+  d.setDate(d.getDate() + 30)
+  return d.toISOString().slice(0, 10)
 }

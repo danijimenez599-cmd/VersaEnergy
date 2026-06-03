@@ -13,7 +13,7 @@ export default function ReportesPage() {
   const REPORTS = [
     { id: 'balance', name: 'Balance Energético', desc: 'Resumen de entradas, consumo medido y pérdidas.' },
     { id: 'enpi', name: 'Desempeño y EnPIs', desc: 'Evolución de los indicadores clave y cumplimiento de objetivos.' },
-    { id: 'iso50001', name: 'Evidencia SGEn (ISO 50001)', desc: 'Reporte consolidado de alcance, SEUs y acciones.' },
+    { id: 'sgen', name: 'Evidencia SGEn', desc: 'Reporte consolidado de alcance, SEUs, auditorías, evidencias y acciones.' },
     { id: 'raw', name: 'Datos crudos (Exportación)', desc: 'Lecturas de medidores y variables en el periodo.', type: 'csv' }
   ]
 

@@ -25,6 +25,7 @@ interface Props {
   onAddTask: (phaseId?: string) => void
   onEditTask: (task: EnergyProjectTask) => void
   onEditPhase: (phase: EnergyProjectPhase) => void
+  onToggleTask?: (task: EnergyProjectTask) => void | Promise<void>
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -58,7 +59,7 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 // ─── Main Gantt ───────────────────────────────────────────────────────────────
 
-export function GanttChart({ phases, tasks, onAddPhase, onAddTask, onEditTask, onEditPhase }: Props) {
+export function GanttChart({ phases, tasks, onAddPhase, onAddTask, onEditTask, onEditPhase, onToggleTask }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const chartRef = useRef<HTMLDivElement>(null)
 
@@ -194,6 +195,7 @@ export function GanttChart({ phases, tasks, onAddPhase, onAddTask, onEditTask, o
               const isCollapsible = isPhase && tasks.some((t) => t.phase_id === row.id)
               const isCollapsed = collapsed.has(row.id)
               const phaseColor = PRIORITY_COLORS[row.priority || 'medium']
+              const isCompleted = row.progress === 100
 
               return (
                 <div
@@ -208,11 +210,28 @@ export function GanttChart({ phases, tasks, onAddPhase, onAddTask, onEditTask, o
                   ) : (
                     <span className="w-3 shrink-0" />
                   )}
+                  {!isPhase && (
+                    <input
+                      type="checkbox"
+                      checked={isCompleted}
+                      onChange={() => {
+                        const tk = getTaskForRow(row)
+                        if (tk && onToggleTask) onToggleTask(tk)
+                      }}
+                      className="w-3.5 h-3.5 rounded border-gray-300 text-brand-blue focus:ring-brand-blue/20 cursor-pointer shrink-0 mr-1 accent-brand-blue"
+                    />
+                  )}
                   <div
                     className={`w-2 h-2 rounded-full shrink-0 ${isPhase ? 'bg-purple-400' : ''}`}
                     style={!isPhase ? { backgroundColor: phaseColor, opacity: 0.7 } : undefined}
                   />
-                  <span className={`text-xs truncate flex-1 ${isPhase ? 'font-semibold text-gray-700' : 'text-gray-600'}`}>
+                  <span className={`text-xs truncate flex-1 ${
+                    isPhase
+                      ? 'font-semibold text-gray-700'
+                      : isCompleted
+                      ? 'text-gray-400 line-through'
+                      : 'text-gray-600'
+                  }`}>
                     {row.label}
                   </span>
                   <button

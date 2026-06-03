@@ -77,6 +77,8 @@ interface AssetCompatRow {
   status: string
   utility_type: string | null
   energy_role: string | null
+  description?: string | null
+  properties?: Record<string, unknown> | null
 }
 
 interface MeasurementPointRow {
@@ -88,17 +90,52 @@ interface MeasurementPointRow {
   calibration_due_date: string | null
 }
 
+interface EnergyAreaRow {
+  id: string
+  site_id: string
+  parent_area_id: string | null
+  name: string
+  code: string | null
+  description: string | null
+  is_active: boolean
+}
+
+interface UtilitySystemRow {
+  id: string
+  site_id: string
+  code: string | null
+  name: string
+  description: string | null
+  utility_type: string | null
+  area_id: string | null
+  is_active: boolean
+  properties: Record<string, unknown> | null
+}
+
+interface EnergyEquipmentRow {
+  id: string
+  site_id: string
+  tag: string | null
+  name: string
+  equipment_type: string | null
+  utility_type: string | null
+  area_id: string | null
+  utility_system_id: string | null
+  status: string
+  properties: Record<string, unknown> | null
+}
+
 export async function loadEnergyAssetTree(
   siteId: string,
   utilityType: string | null,
 ): Promise<EnergyAssetTreeResult> {
   const [
     { data: site },
-    { data: assetsCompat },
+    assetsCompatResult,
     { data: measurementPoints },
   ] = await Promise.all([
     supabase.from('sites').select('id, name, code, address').eq('id', siteId).single(),
-    queryAssetsCompat(siteId, utilityType),
+    queryAssetsCompat(siteId),
     queryMeasurementPoints(siteId, utilityType),
   ])
 
@@ -106,23 +143,134 @@ export async function loadEnergyAssetTree(
     return emptyTree()
   }
 
+  const assetsCompat = assetsCompatResult.error
+    ? await queryFallbackAssetRows(siteId)
+    : (assetsCompatResult.data || []) as AssetCompatRow[]
+
   return buildEnergyAssetTree({
     site: site as SiteRow,
-    assetsCompat: (assetsCompat || []) as AssetCompatRow[],
+    assetsCompat: filterAssetRowsByUtility(assetsCompat, utilityType),
     measurementPoints: (measurementPoints || []) as MeasurementPointRow[],
   })
 }
 
-function queryAssetsCompat(siteId: string, utilityType: string | null) {
-  let query = supabase
+function queryAssetsCompat(siteId: string) {
+  return supabase
     .from('assets_compat')
     .select('id, site_id, parent_id, name, code, asset_type, category, status, utility_type, energy_role')
     .eq('site_id', siteId)
     .neq('status', 'decommissioned')
     .order('name')
+}
 
-  if (utilityType) query = query.eq('utility_type', utilityType)
-  return query
+async function queryFallbackAssetRows(siteId: string): Promise<AssetCompatRow[]> {
+  const [
+    { data: areas, error: areasError },
+    { data: systems, error: systemsError },
+    { data: equipment, error: equipmentError },
+  ] = await Promise.all([
+    supabase
+      .from('energy_areas')
+      .select('id, site_id, parent_area_id, name, code, description, is_active')
+      .eq('site_id', siteId)
+      .order('name'),
+    supabase
+      .from('utility_systems')
+      .select('id, site_id, code, name, description, utility_type, area_id, is_active, properties')
+      .eq('site_id', siteId)
+      .order('name'),
+    supabase
+      .from('energy_equipment')
+      .select('id, site_id, tag, name, equipment_type, utility_type, area_id, utility_system_id, status, properties')
+      .eq('site_id', siteId)
+      .order('name'),
+  ])
+
+  const error = areasError || systemsError || equipmentError
+  if (error) throw error
+
+  return [
+    ...((areas || []) as EnergyAreaRow[]).map(areaToCompatRow),
+    ...((systems || []) as UtilitySystemRow[]).map(systemToCompatRow),
+    ...((equipment || []) as EnergyEquipmentRow[]).map(equipmentToCompatRow),
+  ].filter((row) => row.status !== 'decommissioned')
+}
+
+function areaToCompatRow(area: EnergyAreaRow): AssetCompatRow {
+  return {
+    id: area.id,
+    site_id: area.site_id,
+    parent_id: area.parent_area_id,
+    name: area.name,
+    code: area.code,
+    asset_type: 'area',
+    category: 'other',
+    status: area.is_active ? 'active' : 'decommissioned',
+    utility_type: null,
+    energy_role: null,
+    description: area.description,
+  }
+}
+
+function systemToCompatRow(system: UtilitySystemRow): AssetCompatRow {
+  return {
+    id: system.id,
+    site_id: system.site_id,
+    parent_id: system.area_id,
+    name: system.name,
+    code: system.code,
+    asset_type: 'system',
+    category: 'other',
+    status: system.is_active ? 'active' : 'decommissioned',
+    utility_type: system.utility_type,
+    energy_role: getAssetRole(system.properties),
+    description: system.description,
+    properties: system.properties,
+  }
+}
+
+function equipmentToCompatRow(equipment: EnergyEquipmentRow): AssetCompatRow {
+  return {
+    id: equipment.id,
+    site_id: equipment.site_id,
+    parent_id: equipment.utility_system_id || equipment.area_id,
+    name: equipment.name,
+    code: equipment.tag,
+    asset_type: 'equipment',
+    category: equipment.equipment_type === 'meter' ? 'instrument' : 'other',
+    status: equipment.status,
+    utility_type: equipment.utility_type,
+    energy_role: getAssetRole(equipment.properties),
+    properties: {
+      ...(equipment.properties || {}),
+      equipment_type: equipment.equipment_type,
+    },
+  }
+}
+
+function getAssetRole(properties: Record<string, unknown> | null) {
+  return typeof properties?.asset_role === 'string'
+    ? properties.asset_role
+    : null
+}
+
+function filterAssetRowsByUtility(rows: AssetCompatRow[], utilityType: string | null) {
+  if (!utilityType) return rows
+
+  const rowsById = new Map(rows.map((row) => [row.id, row]))
+  const included = new Set<string>()
+
+  for (const row of rows) {
+    if (row.utility_type !== utilityType) continue
+
+    let current: AssetCompatRow | undefined = row
+    while (current) {
+      included.add(current.id)
+      current = current.parent_id ? rowsById.get(current.parent_id) : undefined
+    }
+  }
+
+  return rows.filter((row) => included.has(row.id))
 }
 
 function queryMeasurementPoints(siteId: string, utilityType: string | null) {
@@ -195,8 +343,12 @@ function buildEnergyAssetTree({
       code: item.code,
       utility: item.utility_type,
       status: item.status,
-      description: item.category || '',
-      properties: { asset_role: item.energy_role },
+      description: item.description ?? item.category ?? '',
+      properties: {
+        ...(item.properties || {}),
+        asset_role: item.energy_role,
+        category: item.category,
+      },
       isMeasurementAsset,
       measurementPointCount: measurementCount,
       cmmsReadiness: item.code ? 'ready' : 'partial',

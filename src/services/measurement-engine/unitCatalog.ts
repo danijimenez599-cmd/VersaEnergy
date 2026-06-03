@@ -210,3 +210,38 @@ export const SOURCE_TYPE_LABELS: Record<string, string> = {
   iot:        'IoT / Automático',
   calculated: 'Calculado',
 }
+
+/** Obtiene las unidades válidas de consumo o cobro para una utility */
+export function getTariffUnits(utility: string): string[] {
+  const catalog = UNIT_CATALOG[utility]
+  if (!catalog) return []
+  const units = new Set<string>()
+  const quantities: MeasurementQuantity[] = ['energy', 'volume', 'mass', 'flow']
+  for (const q of quantities) {
+    const list = catalog[q]
+    if (list) {
+      for (const u of list) {
+        units.add(u)
+      }
+    }
+  }
+  return Array.from(units)
+}
+
+/** Obtiene todas las unidades únicas presentes en todo el catálogo */
+export function getAllUnitsFromCatalog(): string[] {
+  const units = new Set<string>()
+  for (const utility of Object.keys(UNIT_CATALOG)) {
+    const quantities = UNIT_CATALOG[utility]
+    if (quantities) {
+      for (const list of Object.values(quantities)) {
+        if (list) {
+          for (const u of list) {
+            units.add(u)
+          }
+        }
+      }
+    }
+  }
+  return Array.from(units).sort()
+}

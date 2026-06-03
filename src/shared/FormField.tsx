@@ -1,4 +1,5 @@
 import type { ReactNode, LabelHTMLAttributes } from 'react'
+import { AlertTriangle } from 'lucide-react'
 
 interface FormFieldProps extends LabelHTMLAttributes<HTMLLabelElement> {
   label: string
@@ -18,29 +19,31 @@ export function FormField({
   ...props
 }: FormFieldProps) {
   return (
-    <label className={`block ${className}`} {...props}>
-      <span className="mb-1 block text-xs font-semibold text-gray-700">
+    <div className={`space-y-1 w-full ${className}`}>
+      <label className="block text-[10px] uppercase tracking-wide font-bold text-slate-500 ml-0.5" {...props}>
         {label}
-        {required && <span className="text-danger ml-0.5">*</span>}
-      </span>
+        {required && <span className="text-brand ml-1">*</span>}
+      </label>
       {children}
       {hint && !error && (
-        <span className="mt-1 block text-[11px] text-gray-400">{hint}</span>
+        <p className="text-[10px] text-slate-400 mt-1">{hint}</p>
       )}
       {error && (
-        <span className="mt-1 block text-[11px] text-danger font-medium">{error}</span>
+        <p className="text-[10px] text-brand font-medium flex items-center gap-1 mt-1">
+          <AlertTriangle size={10} />
+          {error}
+        </p>
       )}
-    </label>
+    </div>
   )
 }
 
-/** Estilos de input estándar — usar como className en <input>, <select>, <textarea> */
+/** Estilos de input estándar — usar como className en <input>, <textarea> */
 export const inputClass = [
-  'w-full rounded-[--radius-md] border border-[--color-border-strong] bg-white',
-  'px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400',
-  'focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand/40',
-  'disabled:opacity-50 disabled:bg-gray-50 disabled:cursor-not-allowed',
-  'transition-colors duration-150',
+  'flex w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-150 focus:border-brand focus:ring-[3px] focus:ring-brand/10 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-slate-50',
 ].join(' ')
 
-export const selectClass = inputClass + ' cursor-pointer'
+export const selectClass = [
+  'flex w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-150 focus:border-brand focus:ring-[3px] focus:ring-brand/10 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-slate-50',
+  'select-custom cursor-pointer pr-8',
+].join(' ')
