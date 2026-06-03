@@ -16,6 +16,7 @@ import {
   QUANTITY_LABELS,
   MEASUREMENT_TYPE_LABELS,
   SOURCE_TYPE_LABELS,
+  SOURCE_TYPE_ICONS,
   type MeasurementQuantity,
 } from '@/services/measurement-engine/unitCatalog'
 import {
@@ -67,10 +68,21 @@ interface WizardForm {
   quantity: MeasurementQuantity
   unit: string
   source_type: string
+  // manual
   manual_frequency: string
-  iot_protocol: string
-  iot_address: string
-  iot_polling: number
+  // iot_db
+  iot_db_table: string
+  iot_db_field_value: string
+  iot_db_field_ts: string
+  iot_db_filter: string
+  // api_pull
+  api_url: string
+  api_field: string
+  api_interval: number
+  // api_push — solo muestra token generado, sin campos extra
+  // file_import
+  file_format: string
+  file_frequency: string
   // Accumulator fields
   acc_multiplier: number
   acc_offset: number
@@ -88,7 +100,10 @@ const DEFAULT_FORM: WizardForm = {
   unit: 'kWh',
   source_type: 'manual',
   manual_frequency: 'monthly',
-  iot_protocol: 'mqtt', iot_address: '', iot_polling: 60,
+  iot_db_table: 'iot_readings', iot_db_field_value: 'value',
+  iot_db_field_ts: 'recorded_at', iot_db_filter: '',
+  api_url: '', api_field: 'value', api_interval: 15,
+  file_format: 'csv', file_frequency: 'monthly',
   acc_multiplier: 1, acc_offset: 0,
   acc_allow_negative: false, acc_reset_detection: true,
   acc_rollover_enabled: false, acc_rollover_max: 999999,
@@ -121,18 +136,32 @@ function getUtilityColor(utility: string): string {
 }
 
 function buildSourceConfig(form: WizardForm): Record<string, unknown> {
-  if (form.source_type === 'manual') {
-    return { kind: 'manual', frequency: form.manual_frequency }
+  switch (form.source_type) {
+    case 'manual':
+      return { kind: 'manual', frequency: form.manual_frequency }
+    case 'iot_db':
+      return {
+        kind: 'iot_db',
+        table: form.iot_db_table,
+        field_value: form.iot_db_field_value,
+        field_ts: form.iot_db_field_ts,
+        filter: form.iot_db_filter || null,
+      }
+    case 'api_pull':
+      return {
+        kind: 'api_pull',
+        url: form.api_url,
+        field: form.api_field,
+        interval_minutes: form.api_interval,
+      }
+    case 'api_push':
+      return { kind: 'api_push' }
+    case 'file_import':
+      return { kind: 'file_import', format: form.file_format, frequency: form.file_frequency }
+    case 'calculated':
+    default:
+      return { kind: 'calculated', formula: '', inputs: [] }
   }
-  if (form.source_type === 'iot') {
-    return {
-      kind: 'iot',
-      protocol: form.iot_protocol,
-      address: form.iot_address,
-      pollingSeconds: form.iot_polling,
-    }
-  }
-  return { kind: 'calculated', formula: '', inputs: [] }
 }
 
 function buildAccConfig(form: WizardForm): Record<string, unknown> {
@@ -222,9 +251,15 @@ export function MeasurementPointsView({ siteId, utilityType }: Props) {
       unit: mp.unit,
       source_type: mp.source_type,
       manual_frequency: (srcCfg?.frequency as string) || 'monthly',
-      iot_protocol: (srcCfg?.protocol as string) || 'mqtt',
-      iot_address: (srcCfg?.address as string) || '',
-      iot_polling: (srcCfg?.pollingSeconds as number) || 60,
+      iot_db_table: (srcCfg?.table as string) || 'iot_readings',
+      iot_db_field_value: (srcCfg?.field_value as string) || 'value',
+      iot_db_field_ts: (srcCfg?.field_ts as string) || 'recorded_at',
+      iot_db_filter: (srcCfg?.filter as string) || '',
+      api_url: (srcCfg?.url as string) || '',
+      api_field: (srcCfg?.field as string) || 'value',
+      api_interval: (srcCfg?.interval_minutes as number) || 15,
+      file_format: (srcCfg?.format as string) || 'csv',
+      file_frequency: (srcCfg?.frequency as string) || 'monthly',
       acc_multiplier: (accCfg?.multiplier as number) ?? 1,
       acc_offset: (accCfg?.offset as number) ?? 0,
       acc_allow_negative: Boolean(accCfg?.allowNegativeDelta),
@@ -340,7 +375,9 @@ export function MeasurementPointsView({ siteId, utilityType }: Props) {
                           {UTILITY_LABELS[mp.utility] ?? mp.utility}
                         </span>
                         <span className="text-xs text-gray-400">{QUANTITY_LABELS[mp.quantity as MeasurementQuantity] ?? mp.quantity} · {mp.unit}</span>
-                        <span className="text-xs text-gray-400">→ {mp.target_type}</span>
+                        <span className="text-xs text-gray-400">
+                          {SOURCE_TYPE_ICONS[mp.source_type] ?? '?'} {SOURCE_TYPE_LABELS[mp.source_type] ?? mp.source_type}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -662,26 +699,30 @@ function MpWizard({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Fuente de datos *</label>
-              <div className="flex gap-2 mb-3">
-                {(['manual', 'iot', 'calculated'] as const).map((src) => (
+              <label className="block text-xs font-medium text-gray-600 mb-2">Fuente de datos *</label>
+
+              {/* Source type selector — grid de tarjetas */}
+              <div className="grid grid-cols-3 gap-1.5 mb-3">
+                {(Object.entries(SOURCE_TYPE_LABELS) as [string, string][]).map(([src, label]) => (
                   <button
                     key={src}
                     onClick={() => set({ source_type: src })}
-                    className={`flex-1 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+                    className={`flex flex-col items-start px-2.5 py-2 rounded-lg border text-left transition-colors cursor-pointer ${
                       form.source_type === src
                         ? 'bg-brand-blue/10 border-brand-blue text-brand-blue'
-                        : 'border-border text-gray-600 hover:border-gray-300'
+                        : 'border-border text-gray-600 hover:border-gray-300 bg-white'
                     }`}
                   >
-                    {SOURCE_TYPE_LABELS[src]}
+                    <span className="text-base leading-none mb-0.5">{SOURCE_TYPE_ICONS[src]}</span>
+                    <span className="text-[11px] font-medium leading-tight">{label}</span>
                   </button>
                 ))}
               </div>
 
+              {/* Config contextual por fuente */}
               {form.source_type === 'manual' && (
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Frecuencia de lectura</label>
+                <div className="bg-gray-50 rounded-lg p-3 border border-border space-y-2">
+                  <label className="block text-xs text-gray-500">Frecuencia de lectura</label>
                   <select
                     value={form.manual_frequency}
                     onChange={(e) => set({ manual_frequency: e.target.value })}
@@ -692,41 +733,134 @@ function MpWizard({
                     <option value="monthly">Mensual</option>
                     <option value="on_demand">Bajo demanda</option>
                   </select>
+                  <p className="text-[10px] text-gray-400">El operador ingresa el valor manualmente desde el mapa o la página de rondas.</p>
                 </div>
               )}
 
-              {form.source_type === 'iot' && (
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Protocolo</label>
-                    <select
-                      value={form.iot_protocol}
-                      onChange={(e) => set({ iot_protocol: e.target.value })}
-                      className="w-full px-2 py-1.5 border border-border rounded-lg text-xs focus:outline-none bg-white cursor-pointer"
-                    >
-                      {['mqtt', 'opcua', 'modbus', 'http', 'bacnet'].map((p) => (
-                        <option key={p} value={p}>{p.toUpperCase()}</option>
-                      ))}
-                    </select>
+              {form.source_type === 'iot_db' && (
+                <div className="bg-gray-50 rounded-lg p-3 border border-border space-y-2">
+                  <p className="text-[10px] text-gray-500 font-medium">El gateway IoT escribe a una tabla en Supabase. Versa lee de ahí.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">Tabla / vista</label>
+                      <input
+                        value={form.iot_db_table}
+                        onChange={(e) => set({ iot_db_table: e.target.value })}
+                        className="w-full px-2 py-1.5 border border-border rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                        placeholder="iot_readings"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">Campo del valor</label>
+                      <input
+                        value={form.iot_db_field_value}
+                        onChange={(e) => set({ iot_db_field_value: e.target.value })}
+                        className="w-full px-2 py-1.5 border border-border rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                        placeholder="value"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">Campo timestamp</label>
+                      <input
+                        value={form.iot_db_field_ts}
+                        onChange={(e) => set({ iot_db_field_ts: e.target.value })}
+                        className="w-full px-2 py-1.5 border border-border rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                        placeholder="recorded_at"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">Filtro device_id</label>
+                      <input
+                        value={form.iot_db_filter}
+                        onChange={(e) => set({ iot_db_filter: e.target.value })}
+                        className="w-full px-2 py-1.5 border border-border rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                        placeholder="sensor-045"
+                      />
+                    </div>
                   </div>
+                </div>
+              )}
+
+              {form.source_type === 'api_pull' && (
+                <div className="bg-gray-50 rounded-lg p-3 border border-border space-y-2">
+                  <p className="text-[10px] text-gray-500 font-medium">Versa llama periódicamente a un endpoint REST externo.</p>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Dirección / Topic</label>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">URL del endpoint</label>
                     <input
-                      value={form.iot_address}
-                      onChange={(e) => set({ iot_address: e.target.value })}
-                      className="w-full px-2 py-1.5 border border-border rounded-lg text-xs font-mono focus:outline-none"
-                      placeholder="site/meter/energy"
+                      value={form.api_url}
+                      onChange={(e) => set({ api_url: e.target.value })}
+                      className="w-full px-2 py-1.5 border border-border rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                      placeholder="https://api.ejemplo.mx/meters/FE-101"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Polling (s)</label>
-                    <input
-                      type="number"
-                      value={form.iot_polling}
-                      onChange={(e) => set({ iot_polling: Number(e.target.value) })}
-                      className="w-full px-2 py-1.5 border border-border rounded-lg text-xs font-mono focus:outline-none"
-                    />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">Campo del valor (JSON path)</label>
+                      <input
+                        value={form.api_field}
+                        onChange={(e) => set({ api_field: e.target.value })}
+                        className="w-full px-2 py-1.5 border border-border rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                        placeholder="data.value"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">Intervalo (min)</label>
+                      <input
+                        type="number"
+                        value={form.api_interval}
+                        onChange={(e) => set({ api_interval: Number(e.target.value) })}
+                        className="w-full px-2 py-1.5 border border-border rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                      />
+                    </div>
                   </div>
+                </div>
+              )}
+
+              {form.source_type === 'api_push' && (
+                <div className="bg-gray-50 rounded-lg p-3 border border-border">
+                  <p className="text-[10px] text-gray-500 font-medium mb-1">Un sistema externo enviará lecturas al endpoint de Versa.</p>
+                  <p className="text-[10px] text-gray-400">
+                    El token de autenticación y la URL del webhook se generarán al guardar este punto de medición.
+                  </p>
+                </div>
+              )}
+
+              {form.source_type === 'file_import' && (
+                <div className="bg-gray-50 rounded-lg p-3 border border-border space-y-2">
+                  <p className="text-[10px] text-gray-500 font-medium">Lecturas importadas periódicamente desde un archivo.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">Formato</label>
+                      <select
+                        value={form.file_format}
+                        onChange={(e) => set({ file_format: e.target.value })}
+                        className="w-full px-2 py-1.5 border border-border rounded text-xs bg-white cursor-pointer"
+                      >
+                        <option value="csv">CSV</option>
+                        <option value="xlsx">Excel (.xlsx)</option>
+                        <option value="json">JSON</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">Frecuencia esperada</label>
+                      <select
+                        value={form.file_frequency}
+                        onChange={(e) => set({ file_frequency: e.target.value })}
+                        className="w-full px-2 py-1.5 border border-border rounded text-xs bg-white cursor-pointer"
+                      >
+                        <option value="daily">Diaria</option>
+                        <option value="weekly">Semanal</option>
+                        <option value="monthly">Mensual</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {form.source_type === 'calculated' && (
+                <div className="bg-gray-50 rounded-lg p-3 border border-border">
+                  <p className="text-[10px] text-gray-500 font-medium mb-1">Valor derivado automáticamente de otros MPs.</p>
+                  <p className="text-[10px] text-gray-400">La fórmula se configura desde el detalle del punto de medición una vez creado.</p>
                 </div>
               )}
             </div>

@@ -89,69 +89,74 @@ The system uses the following industry standards as inspiration (not to copy tex
 10. **Published topology diagram versions are frozen** — editing requires cloning to a new draft.
 11. **Balances must store which diagram version they used.**
 12. **Estimates must be visually distinguishable from real readings.**
-13. **Each phase has its own doc in `docs/fase-NN.md`** — read it before starting work on that phase.
+13. **Each module has its own doc in `docs/modules/<MODULE>.md`** — read it before starting work on that module.
 14. **Edge visualization uses color + line pattern + label + direction arrow** — never color alone.
 15. **Frontend never talks directly to industrial protocols** (MQTT, OPC UA, Modbus). IoT bindings go through backend/gateway.
 16. **Every equipment/node must have a unique tag** within its facility and utility context.
 
 ## Current Project State
 
-This is a building under construction. Some phases are already implemented, and
-some are plans for future work.
+VersaEnergy has a functional base with an **asset-tree-first** shell
+architecture where modules act as discipline lenses on the selected asset.
+A refactor (MP-R0→R7) was completed in June 2026.
 
 Canonical source of truth:
 
 1. `AGENTS.md` for operating rules, architecture, commands and phase status.
 2. `docs/00_DOCUMENTATION_INDEX.md` for documentation priority and navigation.
-3. `docs/05_MASTER_IMPROVEMENT_PLAN.md` for future implementation phases.
-4. `docs/04_CURRENT_STATE_REFERENCE.md` for what exists, what works and known
+3. `docs/modules/<MODULE>.md` for per-module contracts (CMMS-quality docs).
+4. `docs/05_MASTER_IMPROVEMENT_PLAN.md` for future implementation phases.
+5. `docs/04_CURRENT_STATE_REFERENCE.md` for what exists, what works and known
    gaps.
-5. `docs/01_PRODUCT_VISION.md` and `docs/02_TOPOLOGY_ENGINE.md` for product and
+6. `docs/DATABASE.md` for tables, migrations and RLS.
+7. `docs/VERIFY.md` for verification by change type.
+8. `docs/01_PRODUCT_VISION.md` and `docs/02_TOPOLOGY_ENGINE.md` for product and
    topology intent.
-6. `docs/fase-NN.md` files are build-phase references and historical contracts.
-7. `docs/03_AI_DEVELOPMENT_ROADMAP.md` is historical planning context only.
 
-Do not reintroduce old mock/local-data instructions from early planning docs.
+Do not reintroduce old mock/local-data instructions from archived planning docs.
 The current project rule is Supabase-first and zero mocks.
 
 ## Project Structure
 
 ```
 src/
-  app/            # AppShell, router, providers, layouts
-  shared/         # Reusable components: Button, Badge, Card, Modal, EmptyState, etc.
+  app/            # AppShell (asset-tree-first), router, providers, layouts
+  shared/         # Reusable components
+    AssetTree/    # Shared asset tree component (ported from CMMS)
+    AssetLenses/  # Asset detail with discipline lenses
+    Button.tsx, Badge.tsx, Card.tsx, Modal.tsx, etc.
   modules/        # Feature modules (one folder per module)
     inicio/       # Dashboard / Utilities Cockpit
     mapa/         # Energy & Utilities Map (canvas + topology)
       canvas/     # React Flow canvas, custom nodes, edges
       palette/    # Node palette grouped by family
       inspector/  # Side inspector for selected elements
-    modelo/       # Energy & Utilities Model (catalogs CRUD)
+    modelo/       # Equipos — Asset tree, areas, systems, equipment, meters
     medicion/     # Measurement: readings, CSV import, data quality
     balances/     # Utility balances, calculations
     desempeno/    # EnPI, baselines, targets, performance
-    acciones/     # Savings actions, Kanban
-    iso50001/     # SGEn workspace aligned with ISO 50001, no standard text copied
-    reportes/     # PDF/CSV reports
-    admin/        # Administration, users, settings
-  store/          # Zustand stores
+    acciones/     # Savings actions, Kanban, projects, Gantt, M&V
+    iso50001/     # SGEn workspace aligned with ISO 50001
+    reportes/     # PDF/CSV reports (UI ready, render pending)
+    admin/        # Administration, users, settings (UI ready, backend pending)
+  store/          # Zustand stores (uiStore)
   services/       # Pure logic — NO React dependency
+    asset-tree.ts           # Asset tree service (reads from assets_compat)
+    cockpit.ts              # KPI calculations for dashboard
+    equipmentSpecs.ts       # Equipment spec templates
     supabase.ts             # Supabase client singleton
     topology-engine/        # Graph compiler, validators, queries
-      graphTypes.ts         # TypeScript types for graph model
-      validators.ts         # Validation rules engine
-      compiler.ts           # Canvas → graph compiler
-      graphQueries.ts       # Graph traversal and queries
-      utilityRules.ts       # Utility-specific rules
-      unitConversion.ts     # Unit conversion utilities
-      topologyVersioning.ts # Diagram versioning logic
-      serialization.ts      # JSON snapshot serialization
     balance-engine/         # Balance calculation, losses, overlays
-    standards-engine/       # Standards catalog (ISA-5.1, IEC 60617, ISO 14617, 81346)
     measurement-engine/     # Accumulator logic, delta calculation, rollover
+    improvement-engine/     # Improvement scoring, triage
+    sgen-engine/            # SGEn evidence and compliance logic
 supabase/
-  migrations/     # SQL migration files
-docs/             # Phase documentation (fase-00.md, fase-01.md, ...)
+  migrations/     # SQL migration files (21 files, 00000-00020)
+docs/
+  modules/        # Per-module documentation (CMMS-quality)
+  DATABASE.md     # Table/migration/RLS reference
+  VERIFY.md       # Verification guide by change type
+  MAPA_SCADA_PLAN.md  # Refactor SCADA Fases 0-5 (COMPLETO)
 ```
 
 ## Available Commands
@@ -171,22 +176,37 @@ Before editing, follow this flow:
 1. Read this file.
 2. Convert the user's natural-language request into a brief technical task.
 3. Read `docs/00_DOCUMENTATION_INDEX.md`.
-4. For future product/UI/business work, read
+4. Read `docs/modules/<MODULE>.md` for the affected module.
+5. For future product/UI/business work, read
    `docs/04_CURRENT_STATE_REFERENCE.md` and
    `docs/05_MASTER_IMPROVEMENT_PLAN.md`.
-5. Read the relevant `docs/fase-NN.md` document only when the change touches a
-   specific original build phase or historical implementation detail.
 6. Read `docs/01_PRODUCT_VISION.md` or `docs/02_TOPOLOGY_ENGINE.md` only when the
    change touches product direction, topology, graph semantics or utilities.
 7. Inspect only the source files needed for the task.
-8. If the change touches DB/RLS/schema, inspect the relevant migration files in
-   `supabase/migrations/`.
+8. If the change touches DB/RLS/schema, read `docs/DATABASE.md` and inspect the
+   relevant migration files in `supabase/migrations/`.
 9. Verify with `npm run build` for code changes.
-10. Update docs when behavior, architecture, schema, phase status or guardrails
-   change.
+10. Update docs per `docs/VERIFY.md` when behavior, architecture, schema,
+    phase status or guardrails change.
 
 Do not scan the repo randomly to "understand everything". Build a task-specific
 context packet.
+
+## Change Map (if you change X, read Y)
+
+| Change | Read first | Verify |
+|--------|-----------|--------|
+| Cockpit / KPIs | `docs/modules/INICIO.md`, `src/services/cockpit.ts` | `npm run build` |
+| Asset tree / Equipos | `docs/modules/EQUIPOS.md`, `src/services/asset-tree.ts` | `npm run build` |
+| Canvas / Mapa / Topology | `docs/modules/MAPA.md`, `docs/MAPA_SCADA_PLAN.md`, `docs/02_TOPOLOGY_ENGINE.md` | `npm run build` |
+| Medicion / readings | `docs/modules/MEDICION.md` | `npm run build` |
+| Balances | `docs/modules/BALANCES.md` | `npm run build` |
+| EnPI / Desempeno | `docs/modules/DESEMPENO.md` | `npm run build` |
+| Acciones / Proyectos | `docs/modules/ACCIONES.md` | `npm run build` |
+| SGEn / ISO 50001 | `docs/modules/SGEN.md` | `npm run build`; no ISO text |
+| Reportes | `docs/modules/REPORTES.md` | `npm run build` |
+| Admin / Settings | `docs/modules/ADMIN.md` | `npm run build`; check RLS |
+| DB / schema / RLS | `docs/DATABASE.md`, migration files | `npm run build` |
 
 ## Natural-Language Request Intake
 
@@ -226,7 +246,7 @@ To control token cost, load only:
 - `docs/00_DOCUMENTATION_INDEX.md`;
 - `docs/04_CURRENT_STATE_REFERENCE.md` and
   `docs/05_MASTER_IMPROVEMENT_PLAN.md` for future work;
-- the relevant `docs/fase-NN.md` only when needed;
+- the relevant `docs/modules/<MODULE>.md` for the affected module;
 - product/topology docs only when relevant;
 - necessary source files;
 - relevant migrations when DB/RLS/schema is touched;
@@ -417,32 +437,20 @@ Key rule: **A MeasurementPoint is NOT a visual node**. It is a data entity that 
 
 ## Build Phase Reference
 
-These phases document the original construction path. They are useful as
-reference for what was built, but future work should normally follow
-`docs/05_MASTER_IMPROVEMENT_PLAN.md`.
+Original build phases (0-11) have been completed and their historical documentation has been removed to keep the workspace clean. For current state, see
+`docs/04_CURRENT_STATE_REFERENCE.md`.
 
-| Phase | Name | Status | Doc |
-|-------|------|--------|-----|
-| 0 | Fundación del Repo + Supabase | ✅ Complete | [fase-00.md](docs/fase-00.md) |
-| 1 | App Shell + Auth + Multi-tenant | ✅ Complete | [fase-01.md](docs/fase-01.md) |
-| 2 | Modelo + Utility Definitions + Standards + MeasurementPoints | ✅ Complete | [fase-02.md](docs/fase-02.md) |
-| 3 | Mapa — Grafo Técnico MVP (React Flow) | ✅ Complete | [fase-03.md](docs/fase-03.md) |
-| 4 | Motor de Grafo + Validación + Versionado + Serialización | ✅ Complete | [fase-04.md](docs/fase-04.md) |
-| 5 | Medición + Acumuladores + IoT Binding | ✅ Complete | [fase-05.md](docs/fase-05.md) |
-| 6 | Balances + Overlays Visuales | ✅ Complete | [fase-06.md](docs/fase-06.md) |
-| 7 | EnPI, Baselines, Objetivos | ✅ Complete | [fase-07.md](docs/fase-07.md) |
-| 8 | Acciones y Proyectos de Mejora | ✅ Complete (8a) | [fase-08.md](docs/fase-08.md) |
-| 9 | Workspace SGEn alineado con ISO 50001 | ✅ Complete (9a) | [fase-09.md](docs/fase-09.md) |
-| 10 | Reportes PDF/CSV + SVG/JSON Export | ⬜ Pending | [fase-10.md](docs/fase-10.md) |
-| 11 | QA, Demo Dataset, Beta | ⬜ Pending | [fase-11.md](docs/fase-11.md) |
+All original phases 0-9 are complete. Phases 10-11 are subordinated to
+the master improvement plan.
 
 ## Future Improvement Plan
 
 Use [docs/05_MASTER_IMPROVEMENT_PLAN.md](docs/05_MASTER_IMPROVEMENT_PLAN.md)
-for future implementation. It splits the remaining product hardening into short
-MP phases focused on business logic, energy engineering and UI.
+for future implementation.
 
-## MP Phase Status (Master Improvement Plan)
+## Phase Status
+
+### Original MP Phases
 
 | Phase | Name | Status |
 |-------|------|--------|
@@ -454,12 +462,36 @@ MP phases focused on business logic, energy engineering and UI.
 | MP-05 | Pipeline de medición y calidad de datos | ✅ Complete |
 | MP-06 | Balance Run Wizard y overlays | ✅ Complete |
 | MP-07 | EnPI, baseline y objetivos operables | ✅ Complete |
-| MP-08 | Oportunidades, triage y M&V | ✅ Complete (base) |
-| MP-09 | Workspace de proyectos energéticos + Gantt | ✅ Complete (base) |
-| MP-10 | SGEn operativo alineado con ISO 50001 | ⬜ Pending |
-| MP-11 | Reportes y exportaciones | ⬜ Pending |
-| MP-12 | Administración y configuración energética | ⬜ Pending |
-| MP-13 | Demo dataset, QA y beta | ⬜ Pending |
+| MP-08 | Oportunidades, triage y M&V | ✅ Complete |
+| MP-09 | Workspace de proyectos energéticos + Gantt | ✅ Complete |
+| MP-10 | SGEn operativo alineado con ISO 50001 | ✅ Complete |
+| MP-11 | Reportes y exportaciones | ⏳ UI ready, exportacion pendiente |
+| MP-12 | Administración y configuración energética | ⏳ UI ready, backend pendiente |
+| MP-13 | Demo dataset, QA y beta | ⏳ Dataset rico completado; QA pendiente |
+
+### Refactor MP-R (2026-06-02)
+
+| Phase | Name | Status |
+|-------|------|--------|
+| MP-R0 | Cierre de identidad visual | ✅ Complete |
+| MP-R1 | AssetTree compartido | ✅ Complete |
+| MP-R2 | Shell asset-tree-first + lentes | ✅ Complete |
+| MP-R3 | Migrar disciplinas a lentes | ✅ Complete |
+| MP-R4 | Mantenimiento de medidores | ✅ Complete |
+| MP-R5 | Admin prerequisitos + RLS | ✅ Complete |
+| MP-R6 | Flujos transversales pulidos | ✅ Complete |
+| MP-R7 | Convergencia árbol con CMMS | ✅ Complete |
+
+### Refactor SCADA-inspired (2026-06-03)
+
+| Phase | Name | Status |
+|-------|------|--------|
+| SCADA-0 | Mejoras UX inmediatas | ✅ Complete |
+| SCADA-1 | Palette limpia + source_type en Modelo | ✅ Complete |
+| SCADA-2 | Diagrama hereda del Modelo (EquipmentNode MPs inline) | ✅ Complete |
+| SCADA-3 | Ancla por conexión visual (snap-to-edge, signal edge, rol auto) | ✅ Complete |
+| SCADA-4 | Ingreso manual inline desde inspector | ✅ Complete |
+| SCADA-5 | MPs calculados (engine puro, measurement_readings) | ✅ Complete |
 
 ## Lightweight Plan Improvements
 
@@ -505,7 +537,7 @@ Edge identification MUST use multi-channel approach:
 
 1. **Graph-first, not drawing-first.** The canvas is the view; the graph is the truth.
 2. **MeasurementPoint is independent.** It binds to nodes, edges, systems, or areas — not just a node type.
-3. Module registry (`src/modules/index.ts`) defines all available modules; sidebar renders from it.
+3. Navigation is asset-tree-first with discipline lenses; `src/modules/index.ts` defines module registry.
 4. Zustand stores for UI state; Supabase for all persistent data.
 5. Topology engine (`src/services/topology-engine/`) is pure logic, no React dependency.
 6. Balance engine (`src/services/balance-engine/`) is pure logic, no React dependency.

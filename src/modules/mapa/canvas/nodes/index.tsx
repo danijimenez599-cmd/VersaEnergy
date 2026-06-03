@@ -10,7 +10,9 @@ import {
   Layers, ToggleLeft, Droplet, FlameKindling, Sun, Radio,
 } from 'lucide-react'
 import { useDiagramReadings } from '../hooks/useDiagramReadings'
+import { useEquipmentMPs } from '../hooks/useEquipmentMPs'
 import { QUALITY_COLORS, relativeTime } from '@/services/measurement-engine/lastReadings'
+import { SOURCE_TYPE_ICONS } from '@/services/measurement-engine/unitCatalog'
 import { getControlSymbol } from './controlSymbols'
 import { getEquipmentSymbol } from './equipmentSymbols'
 import { getMeterAnchorFromNodeData, getSelectedMeterScope } from '../meterScopePreview'
@@ -178,17 +180,22 @@ function EquipmentNode({ data, id }: NProps) {
   const primarySpec = getPrimarySpec(data)
   const typeLabel = nodeLabels[nt] || nt
 
-  // Binding indicator (sutil, no badge de texto redundante)
   const properties = data.properties || {}
   const assetBinding = properties.asset_binding as Record<string, unknown> | undefined
   const isLinked = assetBinding?.status === 'linked'
+  const entityId = isLinked && assetBinding?.entity_type === 'equipment'
+    ? (assetBinding.entity_id as string)
+    : null
 
-  // Status dot from readings
+  // Readings del nodo propio (si hay un medidor flotante sobre él)
   const getReading = useDiagramReadings((s) => s.getReading)
   const reading = getReading(id)
   const statusDotColor = !reading ? '#d1d5db' : QUALITY_COLORS[reading.quality]
 
-  // Meta line: tag · spec (una sola línea, sin cortes)
+  // MPs del equipo desde el Modelo (indicadores inline)
+  const getMPs = useEquipmentMPs((s) => s.getMPs)
+  const equipmentMPs = entityId ? getMPs(entityId) : []
+
   const metaParts = [data.tag, primarySpec].filter(Boolean) as string[]
   const allNodes = useDiagramStore((s) => s.nodes)
   const allEdges = useDiagramStore((s) => s.edges)
@@ -210,16 +217,14 @@ function EquipmentNode({ data, id }: NProps) {
       }}
       title={`${typeLabel} · ${data.label}`}
     >
+      {/* Cabecera: símbolo + nombre */}
       <div className="flex items-stretch">
-        {/* Símbolo IEC — bloque lateral con color del utility */}
         <div
           className="flex items-center justify-center w-12 shrink-0"
           style={{ background: tint.soft, color: tint.accent }}
         >
           {Symbol ? <Symbol size={26} /> : <FallbackIcon size={22} />}
         </div>
-
-        {/* Contenido */}
         <div className="flex-1 min-w-0 px-2.5 py-2">
           <div className="flex items-center gap-1">
             <span className="text-[9px] font-semibold uppercase tracking-wide truncate" style={{ color: tint.accent }}>
@@ -228,11 +233,13 @@ function EquipmentNode({ data, id }: NProps) {
             {isLinked && (
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" title="Vinculado al árbol de activos" />
             )}
-            <span
-              className="ml-auto w-2 h-2 rounded-full shrink-0"
-              style={{ backgroundColor: statusDotColor }}
-              title={reading ? `Medición: ${reading.quality}` : 'Sin medidor vinculado'}
-            />
+            {equipmentMPs.length === 0 && (
+              <span
+                className="ml-auto w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: statusDotColor }}
+                title={reading ? `Medición: ${reading.quality}` : 'Sin medidor vinculado'}
+              />
+            )}
           </div>
           <p className="text-[12px] font-bold text-gray-800 truncate leading-tight mt-0.5">{data.label}</p>
           {metaParts.length > 0 && (
@@ -242,6 +249,37 @@ function EquipmentNode({ data, id }: NProps) {
           )}
         </div>
       </div>
+
+      {/* Indicadores inline de MPs (estilo SCADA) */}
+      {equipmentMPs.length > 0 && (
+        <div className="border-t px-2 py-1.5 space-y-1" style={{ borderColor: tint.border }}>
+          {equipmentMPs.slice(0, 4).map((mp) => (
+            <div key={mp.id} className="flex items-center gap-1" title={`${mp.tag} · ${mp.name}`}>
+              <span className="text-[9px] leading-none shrink-0">
+                {SOURCE_TYPE_ICONS[mp.source_type] || '·'}
+              </span>
+              <span className="text-[10px] font-mono font-semibold text-gray-600 shrink-0 w-[46px] truncate">
+                {mp.tag}
+              </span>
+              <span className="flex-1 text-[10px] text-gray-500 text-right truncate">
+                {mp.value != null
+                  ? `${Number(mp.value).toLocaleString('es-MX', { maximumFractionDigits: 1 })} ${mp.unit}`
+                  : <span className="text-gray-300 italic">—</span>
+                }
+              </span>
+              <span
+                className="w-1.5 h-1.5 rounded-full shrink-0 ml-1"
+                style={{ backgroundColor: QUALITY_COLORS[mp.quality] }}
+                title={mp.quality}
+              />
+            </div>
+          ))}
+          {equipmentMPs.length > 4 && (
+            <p className="text-[9px] text-gray-300 text-right pr-0.5">+{equipmentMPs.length - 4} más</p>
+          )}
+        </div>
+      )}
+
       <Handles color={tint.accent} />
     </div>
   )
@@ -287,6 +325,20 @@ function MeasurementNode({ data, id }: NProps) {
   const meterAnchor = getMeterAnchorFromNodeData(data)
   const measurementBinding = data.properties?.measurement_binding as Record<string, unknown> | undefined
   const meterRole = measurementBinding?.role === 'boundary' ? 'boundary' : 'submeter'
+
+  // source_type: viene del reading (MP) o del measurement_binding guardado al crear el nodo
+  const sourceType = reading?.sourceType
+    || (measurementBinding?.source_type as string)
+    || null
+  const sourceIcon = sourceType ? SOURCE_TYPE_ICONS[sourceType] : null
+  const hasMp = Boolean(measurementBinding?.measurement_point_id)
+
+  // Phase 4 — stale badge: para fuentes manuales sin lectura reciente (>24h)
+  const isManual = sourceType === 'manual'
+  const readingAgeH = reading?.timestamp
+    ? (Date.now() - new Date(reading.timestamp).getTime()) / 3_600_000
+    : null
+  const isStaleManual = isManual && hasMp && (readingAgeH === null || readingAgeH > 24)
 
   // Alcance: qué nodo mide (deriva del edge de señal que lo conecta).
   const allNodes = useDiagramStore((s) => s.nodes)
@@ -345,6 +397,32 @@ function MeasurementNode({ data, id }: NProps) {
             <span className="text-[10px] font-mono font-bold leading-none text-gray-700">{tagBottom}</span>
           )}
         </div>
+
+        {/* Ícono de fuente de datos — esquina superior derecha del globo */}
+        {sourceIcon && (
+          <span
+            className="absolute -top-1 -right-1 text-[10px] leading-none bg-white rounded-full shadow-sm border border-gray-100 w-4 h-4 flex items-center justify-center"
+            title={sourceType ?? ''}
+          >
+            {sourceIcon}
+          </span>
+        )}
+
+        {/* Indicador "sin MP" — esquina superior derecha cuando no hay binding */}
+        {!hasMp && !sourceIcon && (
+          <span
+            className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-gray-300 border-2 border-white"
+            title="Sin punto de medición vinculado"
+          />
+        )}
+
+        {/* Phase 4 — "Pendiente lectura" dot: amber pulse for stale manual MPs */}
+        {isStaleManual && (
+          <span
+            className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-amber-400 border-2 border-white animate-pulse"
+            title="Lectura pendiente — ingresa el valor desde el inspector"
+          />
+        )}
       </div>
 
       {/* Valor en vivo debajo del globo */}
@@ -352,8 +430,10 @@ function MeasurementNode({ data, id }: NProps) {
         <div className="mt-1 px-1.5 py-0.5 rounded-md bg-white border border-gray-200 shadow-sm">
           <span className="text-[11px] font-bold text-gray-800 whitespace-nowrap">{displayValue}</span>
         </div>
-      ) : (
+      ) : hasMp ? (
         <span className="mt-1 text-[9px] text-gray-400 italic">Sin lectura</span>
+      ) : (
+        <span className="mt-1 text-[9px] text-gray-300 italic">Sin MP</span>
       )}
       {timeLabel && (
         <span className="text-[8px] text-gray-400 mt-0.5">{timeLabel}</span>

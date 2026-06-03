@@ -32,7 +32,6 @@ export type PaletteFamily =
   | 'connector'
   | 'control'
   | 'measurement'
-  | 'iot'
   | 'organizational'
   | 'special'
 
@@ -164,28 +163,16 @@ export const ALL_PALETTE_GROUPS: PaletteGroup[] = [
     color: 'border-l-purple-500',
     headerColor: 'bg-purple-500',
     items: [
-      { type: 'flow_meter',         label: 'Caudalímetro',    family: 'measurement', icon: Gauge,       description: 'Medidor de caudal' },
-      { type: 'energy_meter',       label: 'Med. Energía',    family: 'measurement', icon: Zap,         description: 'Medidor de energía eléctrica (kWh)' },
-      { type: 'power_meter',        label: 'Power Meter',     family: 'measurement', icon: Activity,    description: 'Medidor de potencia (kW)' },
-      { type: 'pressure_sensor',    label: 'Sensor Presión',  family: 'measurement', icon: BarChart2,   description: 'Sensor de presión' },
-      { type: 'temperature_sensor', label: 'Sensor Temp.',    family: 'measurement', icon: ThermoIcon,  description: 'Sensor de temperatura' },
-      { type: 'level_sensor',       label: 'Sensor Nivel',    family: 'measurement', icon: Gauge,       description: 'Sensor de nivel' },
-      { type: 'current_transformer',label: 'TC',              family: 'measurement', icon: Bolt,        description: 'Transformador de corriente' },
-      { type: 'gas_meter',          label: 'Med. Gas',        family: 'measurement', icon: Flame,       description: 'Medidor de gas' },
-      { type: 'water_meter',        label: 'Med. Agua',       family: 'measurement', icon: Droplets,    description: 'Medidor de agua' },
-      { type: 'steam_meter',        label: 'Med. Vapor',      family: 'measurement', icon: FlameKindling,description: 'Medidor de vapor' },
-    ],
-  },
-  {
-    family: 'iot',
-    label: 'IoT / Datos',
-    color: 'border-l-cyan-500',
-    headerColor: 'bg-cyan-500',
-    items: [
-      { type: 'iot_device',  label: 'Disp. IoT',  family: 'iot', icon: Wifi,    description: 'Dispositivo IoT genérico' },
-      { type: 'gateway',     label: 'Gateway',     family: 'iot', icon: Network, description: 'Gateway de comunicaciones' },
-      { type: 'plc',         label: 'PLC',         family: 'iot', icon: Cpu,     description: 'Controlador lógico programable' },
-      { type: 'edge_device', label: 'Edge Device', family: 'iot', icon: Wifi,    description: 'Dispositivo de cómputo edge' },
+      { type: 'flow_meter',         label: 'Caudalímetro',    family: 'measurement', icon: Gauge,       description: 'Medidor standalone de caudal — para entradas al sitio sin equipo padre' },
+      { type: 'energy_meter',       label: 'Med. Energía',    family: 'measurement', icon: Zap,         description: 'Medidor standalone de energía (kWh) — ej: medidor CFE de entrada' },
+      { type: 'power_meter',        label: 'Power Meter',     family: 'measurement', icon: Activity,    description: 'Medidor standalone de potencia (kW) — los de proceso van en su equipo' },
+      { type: 'pressure_sensor',    label: 'Sensor Presión',  family: 'measurement', icon: BarChart2,   description: 'Sensor standalone de presión — los de proceso van en su equipo' },
+      { type: 'temperature_sensor', label: 'Sensor Temp.',    family: 'measurement', icon: ThermoIcon,  description: 'Sensor standalone de temperatura — los de proceso van en su equipo' },
+      { type: 'level_sensor',       label: 'Sensor Nivel',    family: 'measurement', icon: Gauge,       description: 'Sensor standalone de nivel' },
+      { type: 'current_transformer',label: 'TC',              family: 'measurement', icon: Bolt,        description: 'TC standalone — los de proceso van en su tablero/equipo' },
+      { type: 'gas_meter',          label: 'Med. Gas',        family: 'measurement', icon: Flame,       description: 'Medidor standalone de gas — ej: medidor de suministro general' },
+      { type: 'water_meter',        label: 'Med. Agua',       family: 'measurement', icon: Droplets,    description: 'Medidor standalone de agua — ej: agua municipal de entrada' },
+      { type: 'steam_meter',        label: 'Med. Vapor',      family: 'measurement', icon: FlameKindling,description: 'Medidor standalone de vapor — ej: medidor de suministro de red' },
     ],
   },
   {
@@ -222,7 +209,6 @@ export const PALETTE_UTILITY_FILTER: Record<string, string[]> = {
     'breaker', 'disconnect', 'current_transformer',
     'energy_meter', 'power_meter',
     'motor', 'consumer',
-    'iot_device', 'gateway', 'plc', 'edge_device',
     'area_node', 'process_node', 'production_line',
     'loss_node', 'annotation',
   ],
@@ -241,7 +227,6 @@ export const PALETTE_UTILITY_FILTER: Record<string, string[]> = {
     'valve', 'regulator',
     'flow_meter', 'pressure_sensor',
     'consumer',
-    'iot_device', 'gateway', 'plc', 'edge_device',
     'area_node', 'process_node', 'production_line',
     'loss_node', 'annotation',
   ],

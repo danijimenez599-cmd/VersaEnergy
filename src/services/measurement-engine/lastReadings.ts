@@ -16,6 +16,7 @@ export interface LastReading {
   timestamp: string | null // ISO string of the last reading
   quality: ReadingQuality
   calibrationDueDate: string | null
+  sourceType: string       // 'manual' | 'iot_db' | 'api_pull' | 'api_push' | 'file_import' | 'calculated'
 }
 
 // ── Quality calculation ──────────────────────────────────────────────────────
@@ -52,6 +53,7 @@ export async function getLastReadings(
       unit,
       measurement_type,
       quantity,
+      source_type,
       target_id,
       calibration_due_date,
       is_active
@@ -102,6 +104,7 @@ export async function getLastReadings(
       timestamp: latest?.recorded_at ?? null,
       quality: calcQuality(latest?.recorded_at ?? null),
       calibrationDueDate: (mp.calibration_due_date as string) ?? null,
+      sourceType: (mp.source_type as string) || 'manual',
     })
   }
 

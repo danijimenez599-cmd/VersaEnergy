@@ -3,6 +3,8 @@ import { ReactFlow, Background, Controls, MiniMap, Panel, MarkerType, Connection
 import '@xyflow/react/dist/style.css'
 import { useDiagramStore } from './hooks/useDiagramStore'
 import { useDiagramReadings } from './hooks/useDiagramReadings'
+import { useEquipmentMPs } from './hooks/useEquipmentMPs'
+import { useSnapStore } from './hooks/useSnapStore'
 import { nodeTypes } from './nodes'
 import { edgeTypes } from './edges/UtilityEdge'
 import { layoutNodes, orientEdges, hasOverlaps } from './autoLayout'
@@ -12,14 +14,40 @@ import { useUIStore } from '@/store/uiStore'
 import { Button } from '@/shared/Button'
 import { Badge } from '@/shared/Badge'
 import { getUtilityLabel } from '@/shared/OperationalContext'
-import { Gauge, Link, Search, X, LayoutGrid, ArrowDown, ArrowRight } from 'lucide-react'
+import { Gauge, Link, Search, X, LayoutGrid, ArrowDown, ArrowRight, Check, Zap, Flame } from 'lucide-react'
 
-type PaletteFamily = 'equipment' | 'connector' | 'control' | 'measurement' | 'iot' | 'organizational' | 'special'
+type PaletteFamily = 'equipment' | 'connector' | 'control' | 'measurement' | 'organizational' | 'special'
+
+// Tipos de nodo de medición — para auto-detectar en onConnect
+const METER_NODE_TYPES = new Set([
+  'flow_meter','energy_meter','power_meter','pressure_sensor','temperature_sensor',
+  'level_sensor','current_transformer','gas_meter','water_meter','steam_meter','custom_meter',
+])
 
 interface PendingNode {
   nodeType: string
   family: PaletteFamily
   position: { x: number; y: number }
+  snapAnchor?: Record<string, unknown>  // auto-set al hacer snap a un edge
+}
+
+// ── Captura de coordenadas React Flow ─────────────────────────────────────────
+// screenToFlowPosition requiere contexto ReactFlow; lo capturamos via componente
+// interno y lo exponemos via variable de módulo para que onDrop pueda usarlo.
+
+let _screenToFlowPos: ((pos: { x: number; y: number }) => { x: number; y: number }) | null = null
+
+function snapScreenToFlow(screenPos: { x: number; y: number }) {
+  return _screenToFlowPos?.(screenPos) ?? screenPos
+}
+
+function ReactFlowCoordsCapture() {
+  const { screenToFlowPosition } = useReactFlow()
+  useEffect(() => {
+    _screenToFlowPos = screenToFlowPosition
+    return () => { _screenToFlowPos = null }
+  }, [screenToFlowPosition])
+  return null
 }
 
 interface AssetOption {
@@ -46,6 +74,7 @@ interface MeasurementOption {
   measurement_type: string
   quantity: string
   unit: string
+  source_type: string
 }
 
 const requiredFamilies = new Set<PaletteFamily>(['equipment', 'measurement', 'organizational'])
@@ -67,7 +96,6 @@ const nodeTypeToEquipmentType: Record<string, string> = {
 }
 
 function getReactFlowNodeType(family: PaletteFamily): string {
-  if (family === 'iot') return 'equipment'
   if (family === 'special') return 'special'
   if (family === 'organizational') return 'organizational'
   if (family === 'measurement') return 'measurement'
@@ -89,6 +117,8 @@ export function EnergyUtilitiesCanvas() {
   const onEdgesChange = useDiagramStore((s) => s.onEdgesChange)
   const { selectedSiteId } = useUIStore()
   const [pendingNode, setPendingNode] = useState<PendingNode | null>(null)
+  const isDraggingMeasurement = useSnapStore((s) => s.isDraggingMeasurement)
+  const setHoveredEdgeId = useSnapStore((s) => s.setHoveredEdgeId)
 
   const isDraft = diagramStatus === 'draft'
 
@@ -116,6 +146,10 @@ export function EnergyUtilitiesCanvas() {
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      // Si el source es un nodo medidor → forzar edgeType 'signal' (3b)
+      const sourceNode = nodes.find((n) => n.id === connection.source)
+      const sourceIsMeter = METER_NODE_TYPES.has(sourceNode?.data?.nodeType as string)
+
       const edge: Edge<DiagramEdgeData> = {
         id: crypto.randomUUID(),
         source: connection.source,
@@ -124,44 +158,99 @@ export function EnergyUtilitiesCanvas() {
         targetHandle: connection.targetHandle || undefined,
         type: 'utility',
         data: {
-          edgeType: 'pipe',
-          utility: diagramUtility || 'electricity',
+          edgeType: sourceIsMeter ? 'signal' : 'pipe',
+          utility: sourceIsMeter ? '' : (diagramUtility || 'electricity'),
           flowDirection: 'source_to_target',
           properties: {},
         },
       }
       addEdgeStore(edge)
     },
-    [addEdgeStore, diagramUtility],
+    [addEdgeStore, diagramUtility, nodes],
   )
 
-  const onDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-  }, [])
+  // ── Snap helper — devuelve el edge físico más cercano al punto dado ──────────
+  const findClosestPhysicalEdge = useCallback(
+    (flowPos: { x: number; y: number }, threshold = 130) => {
+      const physEdges = edges.filter(
+        (e) => e.data?.edgeType !== 'signal' && e.data?.edgeType !== 'logical',
+      )
+      let closest: (typeof edges)[0] | null = null
+      let closestDist = threshold
+      for (const edge of physEdges) {
+        const src = nodes.find((n) => n.id === edge.source)
+        const tgt = nodes.find((n) => n.id === edge.target)
+        if (!src || !tgt) continue
+        const mx = (src.position.x + tgt.position.x) / 2
+        const my = (src.position.y + tgt.position.y) / 2
+        const dist = Math.sqrt((flowPos.x - mx) ** 2 + (flowPos.y - my) ** 2)
+        if (dist < closestDist) { closestDist = dist; closest = edge }
+      }
+      return closest
+    },
+    [edges, nodes],
+  )
+
+  const onDragOver = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      if (!isDraggingMeasurement) return
+      const flowPos = snapScreenToFlow({ x: e.clientX, y: e.clientY })
+      const closest = findClosestPhysicalEdge(flowPos)
+      setHoveredEdgeId(closest?.id ?? null)
+    },
+    [isDraggingMeasurement, findClosestPhysicalEdge, setHoveredEdgeId],
+  )
 
   const onDrop = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
       e.preventDefault()
+      setHoveredEdgeId(null)
+
       const nodeType = e.dataTransfer.getData('application/reactflow-type')
       const family = (e.dataTransfer.getData('application/reactflow-family') || 'equipment') as PaletteFamily
       if (!nodeType || !reactFlowWrapper.current) return
 
-      const rect = reactFlowWrapper.current.getBoundingClientRect()
-      const position = {
-        x: e.clientX - rect.left - 60,
-        y: e.clientY - rect.top - 25,
-      }
+      const flowPos = snapScreenToFlow({ x: e.clientX, y: e.clientY })
 
-      if (requiredFamilies.has(family) && selectedSiteId) {
-        setPendingNode({ nodeType, family, position })
+      // 3a — Snap para medidores ────────────────────────────────────────────────
+      if (family === 'measurement' && selectedSiteId) {
+        const closest = findClosestPhysicalEdge(flowPos)
+        let position = flowPos
+        let snapAnchor: Record<string, unknown> | undefined
+
+        if (closest) {
+          const src = nodes.find((n) => n.id === closest.source)!
+          const tgt = nodes.find((n) => n.id === closest.target)!
+          position = {
+            x: (src.position.x + tgt.position.x) / 2 - 26,  // centrar burbuja (52px/2)
+            y: (src.position.y + tgt.position.y) / 2 - 82,  // encima de la línea
+          }
+          snapAnchor = {
+            type: 'edge',
+            id: closest.id,
+            position: 0.5,
+            side: 'line',
+            offset: { x: 0, y: -55 },
+          }
+        }
+
+        setPendingNode({ nodeType, family, position, snapAnchor })
         return
       }
 
+      // Otros families que requieren binding ──────────────────────────────────
+      if (requiredFamilies.has(family) && selectedSiteId) {
+        setPendingNode({ nodeType, family, position: flowPos })
+        return
+      }
+
+      // Nodos sin binding obligatorio (connectors, control, special) ──────────
       const newNode: Node<DiagramNodeData> = {
         id: crypto.randomUUID(),
         type: getReactFlowNodeType(family),
-        position,
+        position: flowPos,
         data: {
           tag: `${nodeType}-${Date.now().toString(36).slice(-4)}`,
           label: nodeType,
@@ -178,7 +267,7 @@ export function EnergyUtilitiesCanvas() {
       }
       addNodeStore(newNode)
     },
-    [addNodeStore, diagramUtility, selectedSiteId],
+    [addNodeStore, diagramUtility, selectedSiteId, nodes, findClosestPhysicalEdge, setHoveredEdgeId],
   )
 
   const onNodeClick = useCallback(
@@ -220,7 +309,9 @@ export function EnergyUtilitiesCanvas() {
         }}
       >
         <Background gap={16} color="#e5e7eb" />
+        <ReactFlowCoordsCapture />
         <DiagramAutoArrange />
+        <EquipmentMPsFetcher />
         <Panel position="top-left">
           <LayoutControls persist={isDraft} />
         </Panel>
@@ -258,6 +349,39 @@ export function EnergyUtilitiesCanvas() {
       )}
     </div>
   )
+}
+
+// ── Equipment MPs Fetcher ────────────────────────────────────────────────────
+// Agrupa todos los entity_ids de nodos de equipo y hace UN solo fetch al Modelo.
+// Se monta dentro de ReactFlow para tener acceso al store del diagrama.
+
+function EquipmentMPsFetcher() {
+  const nodes = useDiagramStore((s) => s.nodes)
+  const { selectedSiteId } = useUIStore()
+  const fetchForEntities = useEquipmentMPs((s) => s.fetchForEntities)
+  const clearMPs = useEquipmentMPs((s) => s.clear)
+
+  useEffect(() => {
+    if (!selectedSiteId) { clearMPs(); return }
+
+    const entityIds = nodes
+      .map((n) => {
+        const b = n.data.properties?.asset_binding as Record<string, unknown> | undefined
+        if (b?.status === 'linked' && b?.entity_type === 'equipment') return b.entity_id as string
+        return null
+      })
+      .filter((id): id is string => Boolean(id))
+
+    if (entityIds.length === 0) { clearMPs(); return }
+
+    void fetchForEntities(selectedSiteId, entityIds)
+    const timer = setInterval(() => {
+      void fetchForEntities(selectedSiteId, entityIds)
+    }, 60_000)
+    return () => clearInterval(timer)
+  }, [selectedSiteId, nodes, fetchForEntities, clearMPs])
+
+  return null
 }
 
 // ── Layout controls (Dagre) ──────────────────────────────────────────────────
@@ -354,6 +478,12 @@ function DiagramAutoArrange() {
   return null
 }
 
+const UTILITY_ICONS: Record<string, typeof Zap> = {
+  electricity: Zap, natural_gas: Flame, steam: Flame,
+  compressed_air: Gauge, chilled_water: Gauge, hot_water: Gauge,
+  industrial_water: Gauge, diesel: Flame, lpg: Flame,
+}
+
 function MapAssetBindingModal({
   pendingNode,
   siteId,
@@ -361,7 +491,7 @@ function MapAssetBindingModal({
   onClose,
   onCreate,
 }: {
-  pendingNode: PendingNode
+  pendingNode: PendingNode          // incluye snapAnchor si se soltó cerca de un edge
   siteId: string
   diagramUtility: string | null
   onClose: () => void
@@ -373,6 +503,7 @@ function MapAssetBindingModal({
   const [selectedAssetId, setSelectedAssetId] = useState('')
   const [selectedAreaId, setSelectedAreaId] = useState('')
   const [selectedPointId, setSelectedPointId] = useState('')
+  const [meterRole, setMeterRole] = useState<'submeter' | 'boundary'>('submeter')
   const [query, setQuery] = useState('')
   const isMeasurement = pendingNode.family === 'measurement'
   const isOrganizational = pendingNode.family === 'organizational'
@@ -393,7 +524,7 @@ function MapAssetBindingModal({
           .order('name'),
         supabase
           .from('measurement_points')
-          .select('id, tag, name, meter_equipment_id, utility, measurement_type, quantity, unit')
+          .select('id, tag, name, meter_equipment_id, utility, measurement_type, quantity, unit, source_type')
           .eq('site_id', siteId)
           .eq('is_active', true)
           .order('tag'),
@@ -405,64 +536,92 @@ function MapAssetBindingModal({
     loadOptions()
   }, [siteId])
 
+  // ── Filtered lists ──────────────────────────────────────────────────────────
+
   const filteredAssets = useMemo(() => {
     const targetType = nodeTypeToEquipmentType[pendingNode.nodeType]
     const normalized = query.trim().toLowerCase()
     return assets
       .filter((asset) => {
-        if (isMeasurement) {
-          return asset.equipment_type === 'meter' || asset.properties?.asset_role === 'measurement_device'
-        }
         if (targetType && asset.equipment_type !== targetType) return false
         return asset.equipment_type !== 'meter'
       })
-      .filter((asset) => !diagramUtility || asset.utility_type === diagramUtility || isMeasurement)
+      .filter((asset) => !diagramUtility || asset.utility_type === diagramUtility)
       .filter((asset) => (
         !normalized ||
         asset.tag.toLowerCase().includes(normalized) ||
         asset.name.toLowerCase().includes(normalized)
       ))
-  }, [assets, diagramUtility, isMeasurement, pendingNode.nodeType, query])
+  }, [assets, diagramUtility, pendingNode.nodeType, query])
 
-  const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) || null
-  const selectedArea = areas.find((area) => area.id === selectedAreaId) || null
-  const meterPoints = points.filter((point) => point.meter_equipment_id === selectedAssetId)
-  const selectedPoint = points.find((point) => point.id === selectedPointId) || meterPoints[0] || null
-  const canCreate = isOrganizational ? Boolean(selectedArea) : Boolean(selectedAsset && (!isMeasurement || selectedPoint))
+  const filteredPoints = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+    return points
+      .filter((mp) => !diagramUtility || mp.utility === diagramUtility)
+      .filter((mp) => (
+        !normalized ||
+        mp.tag.toLowerCase().includes(normalized) ||
+        mp.name.toLowerCase().includes(normalized)
+      ))
+  }, [points, diagramUtility, query])
+
+  const selectedAsset = assets.find((a) => a.id === selectedAssetId) || null
+  const selectedArea = areas.find((a) => a.id === selectedAreaId) || null
+  const selectedPoint = points.find((p) => p.id === selectedPointId) || null
+  const canCreate = isOrganizational ? Boolean(selectedArea) : isMeasurement ? true : Boolean(selectedAsset)
 
   function createNode() {
     if (!canCreate) return
     const id = crypto.randomUUID()
-    const baseUtility = selectedPoint?.utility || selectedAsset?.utility_type || diagramUtility || 'electricity'
-    const tag = isOrganizational ? selectedArea!.code || selectedArea!.name : isMeasurement ? selectedPoint!.tag : selectedAsset!.tag
-    const label = isOrganizational ? selectedArea!.name : isMeasurement ? selectedPoint!.name : selectedAsset!.name
-    const properties: Record<string, unknown> = isOrganizational
-      ? {
-          asset_binding: {
-            required: true,
-            entity_type: 'area',
-            entity_id: selectedArea!.id,
-            source: 'asset_tree',
-            status: 'linked',
-          },
-        }
-      : {
-          asset_binding: {
-            required: true,
-            entity_type: 'equipment',
-            entity_id: selectedAsset!.id,
-            source: 'asset_tree',
-            status: 'linked',
-          },
-          ...(isMeasurement && selectedPoint ? {
-            measurement_binding: {
-              required: true,
-              measurement_point_id: selectedPoint.id,
-              meter_equipment_id: selectedAsset!.id,
-              status: 'linked',
-            },
-          } : {}),
-        }
+
+    let tag: string
+    let label: string
+    let baseUtility: string
+    let properties: Record<string, unknown>
+
+    if (isOrganizational) {
+      tag = selectedArea!.code || selectedArea!.name
+      label = selectedArea!.name
+      baseUtility = diagramUtility || 'electricity'
+      properties = {
+        asset_binding: {
+          required: true,
+          entity_type: 'area',
+          entity_id: selectedArea!.id,
+          source: 'asset_tree',
+          status: 'linked',
+        },
+      }
+    } else if (isMeasurement) {
+      tag = selectedPoint?.tag || `MP-${Date.now().toString(36).slice(-4)}`
+      label = selectedPoint?.name || 'Nuevo medidor'
+      baseUtility = selectedPoint?.utility || diagramUtility || 'electricity'
+      properties = {
+        asset_binding: { required: false, status: 'optional_unbound' },
+        measurement_binding: {
+          required: Boolean(selectedPointId),
+          measurement_point_id: selectedPointId || null,
+          status: selectedPointId ? 'linked' : 'unbound',
+          role: meterRole,
+          source_type: selectedPoint?.source_type || null,
+          // 3a: ancla automática cuando se soltó cerca de un edge
+          ...(pendingNode.snapAnchor ? { anchor: pendingNode.snapAnchor } : {}),
+        },
+      }
+    } else {
+      tag = selectedAsset!.tag
+      label = selectedAsset!.name
+      baseUtility = selectedAsset!.utility_type || diagramUtility || 'electricity'
+      properties = {
+        asset_binding: {
+          required: true,
+          entity_type: 'equipment',
+          entity_id: selectedAsset!.id,
+          source: 'asset_tree',
+          status: 'linked',
+        },
+      }
+    }
 
     onCreate({
       id,
@@ -481,58 +640,170 @@ function MapAssetBindingModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-xl rounded-(--radius-modal) border border-border bg-surface shadow-modal">
-        <div className="flex items-start justify-between border-b border-border p-5">
+      <div className="w-full max-w-lg rounded-(--radius-modal) border border-border bg-surface shadow-modal">
+
+        {/* Header */}
+        <div className="flex items-start justify-between border-b border-border px-5 py-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">
-              {isMeasurement ? 'Vincular medidor fisico' : isOrganizational ? 'Vincular area del arbol' : 'Vincular equipo del arbol'}
+            <h2 className="text-base font-semibold text-gray-900">
+              {isMeasurement ? 'Agregar medidor al diagrama' : isOrganizational ? 'Vincular área del árbol' : 'Vincular equipo del árbol'}
             </h2>
-            <p className="mt-1 text-sm text-gray-500">
-              El mapa representa activos existentes; no crea equipos sueltos.
+            <p className="mt-0.5 text-xs text-gray-400">
+              {isMeasurement
+                ? 'Selecciona el punto de medición que representa este instrumento'
+                : 'El mapa representa activos existentes; no crea equipos sueltos'}
             </p>
           </div>
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
 
         <div className="space-y-4 p-5">
-          {isOrganizational ? (
-            <div className="space-y-2">
+
+          {/* ── MEASUREMENT: MP list → role ─────────────────────────────────── */}
+          {isMeasurement && (
+            <>
+              {/* Search */}
+              <div className="relative">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-surface py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                  placeholder="Buscar por TAG o nombre..."
+                />
+              </div>
+
+              {/* Feedback de snap automático */}
+              {pendingNode.snapAnchor ? (
+                <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-2">
+                  <span className="text-emerald-600 text-sm">⚡</span>
+                  <p className="text-[11px] text-emerald-700 font-medium">
+                    Anclado automáticamente a la línea más cercana — el medidor medirá ese tramo.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-2.5 py-2 border border-gray-100">
+                  Suelta el medidor cerca de una línea para anclarlo automáticamente.
+                  Los medidores de proceso también aparecen en la tarjeta de su equipo.
+                </p>
+              )}
+
+              {/* MP list */}
+              <div className="max-h-44 space-y-1.5 overflow-y-auto pr-0.5">
+                {filteredPoints.length === 0 ? (
+                  <p className="py-6 text-center text-xs text-gray-400">
+                    {diagramUtility
+                      ? `No hay puntos de medición para ${getUtilityLabel(diagramUtility)}.`
+                      : 'Sin puntos de medición disponibles.'}
+                  </p>
+                ) : filteredPoints.map((mp) => {
+                  const UtilIcon = UTILITY_ICONS[mp.utility] || Gauge
+                  const isSelected = selectedPointId === mp.id
+                  return (
+                    <button
+                      key={mp.id}
+                      onClick={() => setSelectedPointId(isSelected ? '' : mp.id)}
+                      className={`flex w-full items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                        isSelected
+                          ? 'border-purple-400 bg-purple-50'
+                          : 'border-border bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <UtilIcon size={14} className={`mt-0.5 shrink-0 ${isSelected ? 'text-purple-600' : 'text-gray-400'}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className={`font-mono text-sm font-bold truncate ${isSelected ? 'text-purple-700' : 'text-[#1B6FF8]'}`}>
+                          {mp.tag}
+                        </p>
+                        <p className="text-xs text-gray-600 truncate">{mp.name}</p>
+                        <p className="text-[11px] text-gray-400 mt-0.5">
+                          {mp.quantity} · {mp.unit} · {getUtilityLabel(mp.utility)}
+                        </p>
+                      </div>
+                      {isSelected && <Check size={14} className="text-purple-600 shrink-0 mt-1" />}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {!selectedPointId && (
+                <p className="text-[11px] text-gray-400 italic">
+                  Sin selección: el medidor se colocará en el diagrama sin datos. Puedes configurarlo después desde el inspector.
+                </p>
+              )}
+
+              {/* Role selector */}
+              <div>
+                <p className="mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Rol en el balance de energía</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setMeterRole('submeter')}
+                    className={`flex flex-col items-start rounded-xl border-2 px-3 py-3 text-left transition-colors ${
+                      meterRole === 'submeter'
+                        ? 'border-gray-800 bg-gray-800 text-white'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="text-sm font-bold">Submedidor</span>
+                    <span className={`mt-0.5 text-[11px] leading-tight ${meterRole === 'submeter' ? 'text-gray-300' : 'text-gray-400'}`}>
+                      Explica consumo aguas abajo
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setMeterRole('boundary')}
+                    className={`flex flex-col items-start rounded-xl border-2 px-3 py-3 text-left transition-colors ${
+                      meterRole === 'boundary'
+                        ? 'border-purple-600 bg-purple-600 text-white'
+                        : 'border-purple-200 bg-purple-50 text-purple-800 hover:bg-purple-100'
+                    }`}
+                  >
+                    <span className="text-sm font-bold">Frontera</span>
+                    <span className={`mt-0.5 text-[11px] leading-tight ${meterRole === 'boundary' ? 'text-purple-200' : 'text-purple-500'}`}>
+                      Entrada total al sistema
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ── ORGANIZATIONAL: area list ───────────────────────────────────── */}
+          {isOrganizational && (
+            <div className="space-y-1.5">
               {areas.map((area) => (
                 <button
                   key={area.id}
                   onClick={() => setSelectedAreaId(area.id)}
-                  className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm ${
+                  className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
                     selectedAreaId === area.id ? 'border-brand-blue bg-brand-blue/5' : 'border-border hover:bg-gray-50'
                   }`}
                 >
-                  <span>{area.code ? `${area.code} · ${area.name}` : area.name}</span>
+                  <span className="font-medium">{area.code ? `${area.code} · ${area.name}` : area.name}</span>
                   {selectedAreaId === area.id && <Badge size="sm">Seleccionada</Badge>}
                 </button>
               ))}
             </div>
-          ) : (
+          )}
+
+          {/* ── EQUIPMENT: search + list ────────────────────────────────────── */}
+          {!isMeasurement && !isOrganizational && (
             <>
               <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+                  onChange={(e) => setQuery(e.target.value)}
                   className="w-full rounded-lg border border-border bg-surface py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                   placeholder="Buscar por TAG o nombre"
                 />
               </div>
-              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+              <div className="max-h-64 space-y-1.5 overflow-y-auto pr-0.5">
                 {filteredAssets.map((asset) => (
                   <button
                     key={asset.id}
-                    onClick={() => {
-                      setSelectedAssetId(asset.id)
-                      const firstPoint = points.find((point) => point.meter_equipment_id === asset.id)
-                      setSelectedPointId(firstPoint?.id || '')
-                    }}
-                    className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left ${
+                    onClick={() => setSelectedAssetId(asset.id)}
+                    className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${
                       selectedAssetId === asset.id ? 'border-brand-blue bg-brand-blue/5' : 'border-border hover:bg-gray-50'
                     }`}
                   >
@@ -541,42 +812,32 @@ function MapAssetBindingModal({
                       <p className="truncate text-sm text-gray-700">{asset.name}</p>
                       <p className="text-xs text-gray-400">{asset.equipment_type} · {getUtilityLabel(asset.utility_type)}</p>
                     </div>
-                    {selectedAssetId === asset.id && <Link size={16} className="shrink-0 text-brand-blue" />}
+                    {selectedAssetId === asset.id && <Link size={15} className="shrink-0 text-brand-blue" />}
                   </button>
                 ))}
               </div>
             </>
           )}
 
-          {isMeasurement && selectedAsset && (
-            <div className="rounded-lg border border-purple-100 bg-purple-50 p-3">
-              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-purple-900">
-                <Gauge size={14} />
-                MeasurementPoint
-              </div>
-              {meterPoints.length === 0 ? (
-                <p className="text-sm text-purple-700">Este medidor fisico aun no tiene MeasurementPoint.</p>
-              ) : (
-                <select
-                  value={selectedPoint?.id || ''}
-                  onChange={(event) => setSelectedPointId(event.target.value)}
-                  className="w-full rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm"
-                >
-                  {meterPoints.map((point) => (
-                    <option key={point.id} value={point.id}>
-                      {point.tag} · {point.quantity} · {point.unit}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-border p-5">
-          <Button variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button onClick={createNode} disabled={!canCreate}>Crear nodo vinculado</Button>
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t border-border px-5 py-4">
+          <p className="text-[11px] text-gray-400">
+            {isMeasurement && selectedPoint
+              ? `${selectedPoint.tag} · ${selectedPoint.quantity}`
+              : isMeasurement
+                ? 'Sin MP seleccionado — configurable después'
+                : ''}
+          </p>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+            <Button onClick={createNode} disabled={!canCreate}>
+              {isMeasurement ? 'Colocar medidor' : 'Vincular y colocar'}
+            </Button>
+          </div>
         </div>
+
       </div>
     </div>
   )

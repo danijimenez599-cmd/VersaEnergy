@@ -28,6 +28,10 @@ Las migraciones son incrementales en `supabase/migrations/`:
 | `00014_admin_settings.sql` | Admin: `app_memberships`, `energy_tariffs`, `energy_emission_factors`, `energy_system_parameters`. |
 | `00015_assets_convergence.sql` | Convergencia CMMS: vista `assets_compat`, tabla `energy_asset_profiles`. |
 | `00016_improvement_monitoring_period.sql` | Acciones: ventana de monitoreo posterior en `energy_improvements`. |
+| `00017_sgen_enhancements.sql` | SGEn: mejoras a `sgen_audits`, `sgen_audit_findings`, `sgen_nonconformities`, `sgen_improvements`, `sgen_legal_notices`. |
+| `00018_enpi_significant_variables.sql` | Desempeno: `enpi_significant_variables` — variables de ajuste de baselines EnPI. |
+| `00019_source_type_realistic.sql` | Modelo: constraint `source_type` en `measurement_points` extendida a 6 tipos reales (`manual`, `iot_db`, `api_pull`, `api_push`, `file_import`, `calculated`). |
+| `00020_measurement_readings.sql` | Medicion: **tabla `measurement_readings`** — tabla unificada de lecturas usada por el mapa, inspector, calculated engine y todos los servicios modernos. |
 
 ## Tablas principales
 
@@ -64,9 +68,16 @@ Las migraciones son incrementales en `supabase/migrations/`:
 
 | Tabla | Clave de tenant | RLS |
 |-------|----------------|-----|
-| `energy_readings_raw` | `company_id` | Si |
+| `measurement_readings` | via FK a `measurement_points` | Si — `00020_measurement_readings.sql` |
+| `energy_readings_raw` | `company_id` | Si — tabla heredada; el seed escribe en ambas |
 | `energy_readings_validated` | `company_id` | Si |
 | `energy_import_batches` | `company_id` | Si |
+
+> **Nota:** `measurement_readings` es la tabla canonica usada por:
+> `lastReadings.ts`, `useEquipmentMPs.ts`, `InspectorPanel.tsx` (ingreso manual)
+> y `calculated.ts` (MPs calculados). `energy_readings_raw` es la tabla heredada
+> usada por el modulo Medicion (import CSV, validacion). El seed escribe en ambas.
+> La columna `quality` admite: `good | manual | calculated | estimated | delayed | suspect | missing`.
 
 ### Balances y desempeno
 
@@ -104,15 +115,19 @@ personalizado y solo despues se cierra como sostenida.
 
 | Tabla | Clave de tenant | RLS |
 |-------|----------------|-----|
-| `sgen_scope` | `company_id` | Si |
-| `sgen_policy` | `company_id` | Si |
-| `sgen_energy_reviews` | `company_id` | Si |
-| `sgen_significant_uses` | `company_id` | Si |
-| `sgen_objectives` | `company_id` | Si |
-| `sgen_evidence` | `company_id` | Si |
-| `sgen_audits` | `company_id` | Si |
-| `sgen_management_reviews` | `company_id` | Si |
-| `sgen_nonconformities` | `company_id` | Si |
+| `sgen_scopes` | via `site_id` | Si |
+| `sgen_policy_documents` | via `site_id` | Si |
+| `sgen_energy_reviews` | via `site_id` | Si |
+| `sgen_significant_uses` | via `site_id` | Si |
+| `sgen_objectives` | via `site_id` | Si |
+| `sgen_evidence` | via `site_id` | Si |
+| `sgen_audits` | via `site_id` | Si |
+| `sgen_audit_findings` | via FK a `sgen_audits` | Si |
+| `sgen_management_reviews` | via `site_id` | Si |
+| `sgen_nonconformities` | via `site_id` | Si |
+| `sgen_risks_opportunities` | via `site_id` | Si |
+| `sgen_improvements` | via `site_id` | Si |
+| `sgen_legal_notices` | via `site_id` | Si |
 
 ### Admin y configuracion
 

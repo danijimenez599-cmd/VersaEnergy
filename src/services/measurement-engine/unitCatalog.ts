@@ -206,9 +206,21 @@ export const MEASUREMENT_TYPE_LABELS: Record<string, string> = {
 }
 
 export const SOURCE_TYPE_LABELS: Record<string, string> = {
-  manual:     'Manual',
-  iot:        'IoT / Automático',
-  calculated: 'Calculado',
+  manual:      'Manual',
+  iot_db:      'IoT vía base de datos',
+  api_pull:    'API (Versa consulta)',
+  api_push:    'API (push externo)',
+  file_import: 'Importación de archivo',
+  calculated:  'Calculado',
+}
+
+export const SOURCE_TYPE_ICONS: Record<string, string> = {
+  manual:      '⌨',
+  iot_db:      '📡',
+  api_pull:    '🔗',
+  api_push:    '📥',
+  file_import: '📁',
+  calculated:  '⚙',
 }
 
 /** Obtiene las unidades válidas de consumo o cobro para una utility */

@@ -158,24 +158,37 @@ on conflict (id) do nothing;
 ------------------------------------------------------------
 insert into measurement_points (id, site_id, tag, name, target_type, target_id, utility, measurement_type, quantity, unit, source_type, source_config, accumulator_config, last_calibration_date, calibration_due_date, meter_equipment_id, properties) values
   -- Electricidad
-  ('11000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'EM-001', 'Medidor Energia Principal', 'equipment', 'e0000000-0000-0000-0000-000000000001', 'electricity', 'accumulator', 'energy', 'kWh', 'manual', '{"frequency":"monthly","captureMethod":"manual_routine"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-01-15', '2027-01-15', 'e0000000-0000-0000-0000-000000000101', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"T-01","meter_equipment_tag":"EM-001"}'),
-  ('11000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', 'PM-001', 'Power Meter Produccion', 'equipment', 'e0000000-0000-0000-0000-000000000003', 'electricity', 'accumulator', 'energy', 'kWh', 'manual', '{"frequency":"monthly","captureMethod":"manual_routine"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-01-15', '2027-01-15', 'e0000000-0000-0000-0000-000000000102', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"P-02","meter_equipment_tag":"PM-001"}'),
-  ('11000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000001', 'PM-002', 'Power Meter HVAC', 'equipment', 'e0000000-0000-0000-0000-000000000004', 'electricity', 'accumulator', 'energy', 'kWh', 'manual', '{"frequency":"monthly","captureMethod":"manual_routine"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-01-15', '2027-01-15', 'e0000000-0000-0000-0000-000000000103', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"P-03","meter_equipment_tag":"PM-002"}'),
-  ('11000000-0000-0000-0000-000000000004', '40000000-0000-0000-0000-000000000001', 'EM-002', 'Energia Compresor', 'equipment', 'e0000000-0000-0000-0000-000000000005', 'electricity', 'accumulator', 'energy', 'kWh', 'manual', '{"frequency":"monthly","captureMethod":"manual_routine"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-01-15', '2027-01-15', 'e0000000-0000-0000-0000-000000000104', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"M-01","meter_equipment_tag":"EM-002"}'),
+  -- EM-001: medidor CFE — manual (lectura del recibo mensual)
+  ('11000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'EM-001', 'Medidor Energia Principal CFE', 'equipment', 'e0000000-0000-0000-0000-000000000001', 'electricity', 'accumulator', 'energy', 'kWh', 'manual', '{"kind":"manual","frequency":"monthly"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-01-15', '2027-01-15', 'e0000000-0000-0000-0000-000000000101', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"T-01","meter_equipment_tag":"EM-001"}'),
+  -- PM-001: power meter produccion — IoT via DB (gateway escribe a iot_readings)
+  ('11000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', 'PM-001', 'Power Meter Produccion', 'equipment', 'e0000000-0000-0000-0000-000000000003', 'electricity', 'accumulator', 'energy', 'kWh', 'iot_db', '{"kind":"iot_db","table":"iot_readings","field_value":"value","field_ts":"recorded_at","filter":"PM-001"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-01-15', '2027-01-15', 'e0000000-0000-0000-0000-000000000102', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"P-02","meter_equipment_tag":"PM-001"}'),
+  -- PM-002: power meter HVAC — IoT via DB
+  ('11000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000001', 'PM-002', 'Power Meter HVAC', 'equipment', 'e0000000-0000-0000-0000-000000000004', 'electricity', 'accumulator', 'energy', 'kWh', 'iot_db', '{"kind":"iot_db","table":"iot_readings","field_value":"value","field_ts":"recorded_at","filter":"PM-002"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-01-15', '2027-01-15', 'e0000000-0000-0000-0000-000000000103', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"P-03","meter_equipment_tag":"PM-002"}'),
+  -- EM-002: energia compresor — IoT via DB
+  ('11000000-0000-0000-0000-000000000004', '40000000-0000-0000-0000-000000000001', 'EM-002', 'Energia Compresor', 'equipment', 'e0000000-0000-0000-0000-000000000005', 'electricity', 'accumulator', 'energy', 'kWh', 'iot_db', '{"kind":"iot_db","table":"iot_readings","field_value":"value","field_ts":"recorded_at","filter":"EM-002"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-01-15', '2027-01-15', 'e0000000-0000-0000-0000-000000000104', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"M-01","meter_equipment_tag":"EM-002"}'),
   -- Vapor
-  ('11000000-0000-0000-0000-000000000005', '40000000-0000-0000-0000-000000000001', 'FQI-101', 'Medidor Vapor Principal', 'equipment', 'e0000000-0000-0000-0000-000000000007', 'steam', 'accumulator', 'mass', 'kg', 'manual', '{"frequency":"monthly","captureMethod":"manual_routine"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-02-10', '2027-02-10', 'e0000000-0000-0000-0000-000000000105', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"B-01","meter_equipment_tag":"FQI-101"}'),
-  ('11000000-0000-0000-0000-000000000006', '40000000-0000-0000-0000-000000000001', 'PT-101', 'Presion Vapor Header', 'equipment', 'e0000000-0000-0000-0000-000000000007', 'steam', 'instantaneous', 'pressure', 'bar', 'manual', '{"frequency":"daily","captureMethod":"manual_routine"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":false}', '2026-02-10', '2027-02-10', 'e0000000-0000-0000-0000-000000000106', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"B-01","meter_equipment_tag":"PT-101"}'),
-  ('11000000-0000-0000-0000-000000000007', '40000000-0000-0000-0000-000000000001', 'TT-101', 'Temperatura Vapor', 'equipment', 'e0000000-0000-0000-0000-000000000007', 'steam', 'instantaneous', 'temperature', 'C', 'manual', '{"frequency":"daily","captureMethod":"manual_routine"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":false}', '2026-02-10', '2027-02-10', 'e0000000-0000-0000-0000-000000000107', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"B-01","meter_equipment_tag":"TT-101"}'),
+  -- FQI-101: medidor vapor principal — manual (recibo CFE-gas + cálculo vapor)
+  ('11000000-0000-0000-0000-000000000005', '40000000-0000-0000-0000-000000000001', 'FQI-101', 'Medidor Vapor Principal', 'equipment', 'e0000000-0000-0000-0000-000000000007', 'steam', 'accumulator', 'mass', 'kg', 'manual', '{"kind":"manual","frequency":"monthly"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-02-10', '2027-02-10', 'e0000000-0000-0000-0000-000000000105', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"B-01","meter_equipment_tag":"FQI-101"}'),
+  -- PT-101: presion vapor — IoT via DB (sensor de presion conectado a gateway)
+  ('11000000-0000-0000-0000-000000000006', '40000000-0000-0000-0000-000000000001', 'PT-101', 'Presion Vapor Header', 'equipment', 'e0000000-0000-0000-0000-000000000007', 'steam', 'instantaneous', 'pressure', 'bar', 'iot_db', '{"kind":"iot_db","table":"iot_readings","field_value":"value","field_ts":"recorded_at","filter":"PT-101"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":false}', '2026-02-10', '2027-02-10', 'e0000000-0000-0000-0000-000000000106', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"B-01","meter_equipment_tag":"PT-101"}'),
+  -- TT-101: temperatura vapor — IoT via DB
+  ('11000000-0000-0000-0000-000000000007', '40000000-0000-0000-0000-000000000001', 'TT-101', 'Temperatura Vapor', 'equipment', 'e0000000-0000-0000-0000-000000000007', 'steam', 'instantaneous', 'temperature', 'C', 'iot_db', '{"kind":"iot_db","table":"iot_readings","field_value":"value","field_ts":"recorded_at","filter":"TT-101"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":false}', '2026-02-10', '2027-02-10', 'e0000000-0000-0000-0000-000000000107', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"B-01","meter_equipment_tag":"TT-101"}'),
   -- Aire comprimido
-  ('11000000-0000-0000-0000-000000000008', '40000000-0000-0000-0000-000000000001', 'FQI-201', 'Flujo Aire Comprimido', 'equipment', 'e0000000-0000-0000-0000-000000000010', 'compressed_air', 'accumulator', 'volume', 'Nm3', 'manual', '{"frequency":"monthly","captureMethod":"manual_routine"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-03-05', '2027-03-05', 'e0000000-0000-0000-0000-000000000108', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"C-01","meter_equipment_tag":"FQI-201"}'),
-  ('11000000-0000-0000-0000-000000000009', '40000000-0000-0000-0000-000000000001', 'PT-201', 'Presion Aire Header', 'equipment', 'e0000000-0000-0000-0000-000000000011', 'compressed_air', 'instantaneous', 'pressure', 'bar', 'manual', '{"frequency":"daily","captureMethod":"manual_routine"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":false}', '2026-03-05', '2027-03-05', 'e0000000-0000-0000-0000-000000000109', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"TK-02","meter_equipment_tag":"PT-201"}'),
+  -- FQI-201: flujo aire — manual (caudalímetro sin conexion digital)
+  ('11000000-0000-0000-0000-000000000008', '40000000-0000-0000-0000-000000000001', 'FQI-201', 'Flujo Aire Comprimido', 'equipment', 'e0000000-0000-0000-0000-000000000010', 'compressed_air', 'accumulator', 'volume', 'Nm3', 'manual', '{"kind":"manual","frequency":"monthly"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-03-05', '2027-03-05', 'e0000000-0000-0000-0000-000000000108', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"C-01","meter_equipment_tag":"FQI-201"}'),
+  -- PT-201: presion aire — IoT via DB
+  ('11000000-0000-0000-0000-000000000009', '40000000-0000-0000-0000-000000000001', 'PT-201', 'Presion Aire Header', 'equipment', 'e0000000-0000-0000-0000-000000000011', 'compressed_air', 'instantaneous', 'pressure', 'bar', 'iot_db', '{"kind":"iot_db","table":"iot_readings","field_value":"value","field_ts":"recorded_at","filter":"PT-201"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":false}', '2026-03-05', '2027-03-05', 'e0000000-0000-0000-0000-000000000109', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"TK-02","meter_equipment_tag":"PT-201"}'),
   -- Agua helada
-  ('11000000-0000-0000-0000-000000000010', '40000000-0000-0000-0000-000000000001', 'EM-301', 'Energia Termica Chiller', 'equipment', 'e0000000-0000-0000-0000-000000000012', 'chilled_water', 'accumulator', 'energy', 'TR-h', 'manual', '{"frequency":"monthly","captureMethod":"manual_routine"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-04-10', '2027-04-10', 'e0000000-0000-0000-0000-000000000110', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"CH-01","meter_equipment_tag":"EM-301"}'),
-  ('11000000-0000-0000-0000-000000000011', '40000000-0000-0000-0000-000000000001', 'FT-301', 'Flujo Agua Helada', 'equipment', 'e0000000-0000-0000-0000-000000000012', 'chilled_water', 'instantaneous', 'flow', 'GPM', 'manual', '{"frequency":"daily","captureMethod":"manual_routine"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":false}', '2026-04-10', '2027-04-10', 'e0000000-0000-0000-0000-000000000111', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"CH-01","meter_equipment_tag":"FT-301"}'),
+  -- EM-301: energia termica chiller — importacion de archivo (reporte BMS mensual)
+  ('11000000-0000-0000-0000-000000000010', '40000000-0000-0000-0000-000000000001', 'EM-301', 'Energia Termica Chiller', 'equipment', 'e0000000-0000-0000-0000-000000000012', 'chilled_water', 'accumulator', 'energy', 'TR-h', 'file_import', '{"kind":"file_import","format":"xlsx","frequency":"monthly"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-04-10', '2027-04-10', 'e0000000-0000-0000-0000-000000000110', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"CH-01","meter_equipment_tag":"EM-301"}'),
+  -- FT-301: flujo agua helada — IoT via DB
+  ('11000000-0000-0000-0000-000000000011', '40000000-0000-0000-0000-000000000001', 'FT-301', 'Flujo Agua Helada', 'equipment', 'e0000000-0000-0000-0000-000000000012', 'chilled_water', 'instantaneous', 'flow', 'GPM', 'iot_db', '{"kind":"iot_db","table":"iot_readings","field_value":"value","field_ts":"recorded_at","filter":"FT-301"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":false}', '2026-04-10', '2027-04-10', 'e0000000-0000-0000-0000-000000000111', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"CH-01","meter_equipment_tag":"FT-301"}'),
   -- Gas natural
-  ('11000000-0000-0000-0000-000000000012', '40000000-0000-0000-0000-000000000001', 'FQI-401', 'Consumo Gas Caldera', 'equipment', 'e0000000-0000-0000-0000-000000000007', 'natural_gas', 'accumulator', 'volume', 'Nm3', 'manual', '{"frequency":"monthly","captureMethod":"manual_routine"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-02-10', '2027-02-10', 'e0000000-0000-0000-0000-000000000112', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"B-01","meter_equipment_tag":"FQI-401"}'),
-  -- Medicion virtual
-  ('11000000-0000-0000-0000-000000000013', '40000000-0000-0000-0000-000000000001', 'VM-001', 'kWh/Nm3 Aire Comprimido', 'equipment', 'e0000000-0000-0000-0000-000000000010', 'compressed_air', 'calculated', 'energy', 'kWh/Nm3', 'calculated', '{"formula":"EM_002 / FQI_201","inputs":["11000000-0000-0000-0000-000000000004","11000000-0000-0000-0000-000000000008"]}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":false}', null, null, 'e0000000-0000-0000-0000-000000000113', '{"cmms_asset_role":"virtual_measurement","measured_equipment_tag":"C-01","meter_equipment_tag":"VM-001"}')
+  -- FQI-401: consumo gas caldera — manual (recibo gas LP / medidor CFE-gas)
+  ('11000000-0000-0000-0000-000000000012', '40000000-0000-0000-0000-000000000001', 'FQI-401', 'Consumo Gas Caldera', 'equipment', 'e0000000-0000-0000-0000-000000000007', 'natural_gas', 'accumulator', 'volume', 'Nm3', 'manual', '{"kind":"manual","frequency":"monthly"}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":true}', '2026-02-10', '2027-02-10', 'e0000000-0000-0000-0000-000000000112', '{"cmms_asset_role":"measurement_device","measured_equipment_tag":"B-01","meter_equipment_tag":"FQI-401"}'),
+  -- Medicion calculada
+  -- VM-001: eficiencia especifica aire — calculado (EM-002 / FQI-201)
+  ('11000000-0000-0000-0000-000000000013', '40000000-0000-0000-0000-000000000001', 'VM-001', 'Eficiencia Especifica Aire (kWh/Nm3)', 'equipment', 'e0000000-0000-0000-0000-000000000010', 'compressed_air', 'calculated', 'energy', 'kWh/Nm3', 'calculated', '{"kind":"calculated","formula":"ratio","inputs":["11000000-0000-0000-0000-000000000004","11000000-0000-0000-0000-000000000008"]}', '{"multiplier":1,"offset":0,"allowNegativeDelta":false,"resetDetection":false}', null, null, 'e0000000-0000-0000-0000-000000000113', '{"cmms_asset_role":"virtual_measurement","measured_equipment_tag":"C-01","meter_equipment_tag":"VM-001"}')
 on conflict (id) do nothing;
 
 ------------------------------------------------------------
@@ -273,9 +286,11 @@ insert into energy_diagram_versions (id, diagram_id, version_number, status, lab
 on conflict (diagram_id, version_number) do nothing;
 
 ------------------------------------------------------------
--- Readings (monthly data through current demo period, with seasonal patterns)
+-- Readings — 18 months histórico + lecturas recientes "en vivo"
+-- Se insertan en AMBAS tablas:
+--   energy_readings_raw   → historial heredado
+--   measurement_readings  → tabla moderna usada por el mapa y servicios
 ------------------------------------------------------------
--- Function to generate monthly readings
 do $$
 declare
   m integer;
@@ -287,78 +302,143 @@ declare
   seasonal numeric;
   period_start date;
   period_month integer;
+  v_kwh_em001 numeric;
+  v_kwh_pm001 numeric;
+  v_kwh_pm002 numeric;
+  v_kwh_em002 numeric;
+  v_steam_fqi101 numeric;
+  v_air_fqi201 numeric;
+  v_gas_fqi401 numeric;
+  v_chw_em301 numeric;
 begin
   for m in 1..18 loop
-    period_start := (date '2025-01-01' + ((m - 1) || ' months')::interval)::date;
-    period_month := extract(month from period_start)::integer;
-    seasonal := 1.0 + 0.15 * sin((period_month - 6) * pi() / 6); -- Summer peak
-    r_ts := (period_start::text || ' 08:00:00')::timestamptz;
+    period_start  := (date '2025-01-01' + ((m - 1) || ' months')::interval)::date;
+    period_month  := extract(month from period_start)::integer;
+    seasonal      := 1.0 + 0.15 * sin((period_month - 6) * pi() / 6); -- Summer peak en junio
+    r_ts          := (period_start::text || ' 08:00:00')::timestamptz;
 
-    -- EM-001: total electricity 85,000 - 110,000 kWh/month
-    base_kwh := (85000 + random() * 25000) * seasonal;
+    -- ── Electricidad ──────────────────────────────────────────────────────────
+    base_kwh       := round((85000 + random() * 25000) * seasonal);
+    v_kwh_em001    := 5000000 + m * 100000 + base_kwh * m;
+    v_kwh_pm001    := 2800000 + m *  55000 + base_kwh * 0.55 * m;
+    v_kwh_pm002    := 1200000 + m *  25000 + base_kwh * 0.25 * m;
+    v_kwh_em002    :=  700000 + m *  13000 + base_kwh * 0.14 * m;
+
     insert into energy_readings_raw (measurement_point_id, timestamp, value, unit, source)
-    values ('11000000-0000-0000-0000-000000000001', r_ts, 5000000 + m * 100000 + base_kwh * m, 'kWh', 'manual')
+    values
+      ('11000000-0000-0000-0000-000000000001', r_ts, v_kwh_em001, 'kWh', 'manual'),
+      ('11000000-0000-0000-0000-000000000002', r_ts, v_kwh_pm001, 'kWh', 'manual'),
+      ('11000000-0000-0000-0000-000000000003', r_ts, v_kwh_pm002, 'kWh', 'manual'),
+      ('11000000-0000-0000-0000-000000000004', r_ts, v_kwh_em002, 'kWh', 'manual')
     on conflict (measurement_point_id, timestamp) do nothing;
 
-    -- PM-001: production electricity ~55% of total
+    insert into measurement_readings (measurement_point_id, value, recorded_at, quality, notes)
+    values
+      ('11000000-0000-0000-0000-000000000001', v_kwh_em001, r_ts, 'manual', 'Lectura mensual recibo CFE'),
+      ('11000000-0000-0000-0000-000000000002', v_kwh_pm001, r_ts, 'manual', 'Lectura mensual PM-001 Produccion'),
+      ('11000000-0000-0000-0000-000000000003', v_kwh_pm002, r_ts, 'manual', 'Lectura mensual PM-002 HVAC'),
+      ('11000000-0000-0000-0000-000000000004', v_kwh_em002, r_ts, 'manual', 'Lectura mensual EM-002 Compresor')
+    on conflict (measurement_point_id, recorded_at) do nothing;
+
+    -- ── Vapor y Gas Natural ───────────────────────────────────────────────────
+    base_steam      := round((180000 + random() * 70000) * seasonal);
+    v_steam_fqi101  := 10000000 + m * 220000 + base_steam * m;
+    v_gas_fqi401    :=  5000000 + m *  17000 + base_steam * 0.085 * m;
+
     insert into energy_readings_raw (measurement_point_id, timestamp, value, unit, source)
-    values ('11000000-0000-0000-0000-000000000002', r_ts, 2800000 + m * 55000 + base_kwh * 0.55 * m, 'kWh', 'manual')
+    values
+      ('11000000-0000-0000-0000-000000000005', r_ts, v_steam_fqi101,       'kg',  'manual'),
+      ('11000000-0000-0000-0000-000000000006', r_ts, 7.5 + random() * 1.5, 'bar', 'manual'),
+      ('11000000-0000-0000-0000-000000000007', r_ts, 165 + random() * 15,  'C',   'manual'),
+      ('11000000-0000-0000-0000-000000000012', r_ts, v_gas_fqi401,         'Nm3', 'manual')
     on conflict (measurement_point_id, timestamp) do nothing;
 
-    -- PM-002: HVAC electricity ~25% of total (higher in summer)
+    insert into measurement_readings (measurement_point_id, value, recorded_at, quality, notes)
+    values
+      ('11000000-0000-0000-0000-000000000005', v_steam_fqi101,       r_ts, 'manual', 'Totalizador FQI-101 mensual'),
+      ('11000000-0000-0000-0000-000000000006', 7.5 + random() * 1.5, r_ts, 'manual', 'Presion header vapor'),
+      ('11000000-0000-0000-0000-000000000007', 165 + random() * 15,  r_ts, 'manual', 'Temperatura vapor saturado'),
+      ('11000000-0000-0000-0000-000000000012', v_gas_fqi401,         r_ts, 'manual', 'Consumo gas FQI-401 mensual')
+    on conflict (measurement_point_id, recorded_at) do nothing;
+
+    -- ── Aire Comprimido ───────────────────────────────────────────────────────
+    base_air       := round((250000 + random() * 100000) * seasonal);
+    v_air_fqi201   := 15000000 + m * 300000 + base_air * m;
+
     insert into energy_readings_raw (measurement_point_id, timestamp, value, unit, source)
-    values ('11000000-0000-0000-0000-000000000003', r_ts, 1200000 + m * 25000 + base_kwh * 0.25 * m, 'kWh', 'manual')
+    values
+      ('11000000-0000-0000-0000-000000000008', r_ts, v_air_fqi201,          'Nm3', 'manual'),
+      ('11000000-0000-0000-0000-000000000009', r_ts, 6.8 + random() * 1.0,  'bar', 'manual')
     on conflict (measurement_point_id, timestamp) do nothing;
 
-    -- EM-002: compressor energy ~15% of total
+    insert into measurement_readings (measurement_point_id, value, recorded_at, quality, notes)
+    values
+      ('11000000-0000-0000-0000-000000000008', v_air_fqi201,          r_ts, 'manual', 'Totalizador FQI-201 mensual'),
+      ('11000000-0000-0000-0000-000000000009', 6.8 + random() * 1.0,  r_ts, 'manual', 'Presion aire PT-201')
+    on conflict (measurement_point_id, recorded_at) do nothing;
+
+    -- ── Agua Helada ───────────────────────────────────────────────────────────
+    base_chw      := round((15000 + random() * 8000) * seasonal * 1.3);
+    v_chw_em301   := 800000 + m * 20000 + base_chw * m;
+
     insert into energy_readings_raw (measurement_point_id, timestamp, value, unit, source)
-    values ('11000000-0000-0000-0000-000000000004', r_ts, 700000 + m * 13000 + base_kwh * 0.14 * m, 'kWh', 'manual')
+    values
+      ('11000000-0000-0000-0000-000000000010', r_ts, v_chw_em301,         'TR-h', 'manual'),
+      ('11000000-0000-0000-0000-000000000011', r_ts, 380 + random() * 50, 'GPM',  'manual')
     on conflict (measurement_point_id, timestamp) do nothing;
 
-    -- FQI-101: steam 180,000-250,000 kg/month
-    base_steam := (180000 + random() * 70000) * seasonal;
-    insert into energy_readings_raw (measurement_point_id, timestamp, value, unit, source)
-    values ('11000000-0000-0000-0000-000000000005', r_ts, 10000000 + m * 220000 + base_steam * m, 'kg', 'manual')
-    on conflict (measurement_point_id, timestamp) do nothing;
+    insert into measurement_readings (measurement_point_id, value, recorded_at, quality, notes)
+    values
+      ('11000000-0000-0000-0000-000000000010', v_chw_em301,         r_ts, 'manual', 'Energia termica EM-301 mensual'),
+      ('11000000-0000-0000-0000-000000000011', 380 + random() * 50, r_ts, 'manual', 'Flujo instantaneo FT-301')
+    on conflict (measurement_point_id, recorded_at) do nothing;
 
-    -- PT-101: steam pressure
-    insert into energy_readings_raw (measurement_point_id, timestamp, value, unit, source)
-    values ('11000000-0000-0000-0000-000000000006', r_ts, 7.5 + random() * 1.5, 'bar', 'manual')
-    on conflict (measurement_point_id, timestamp) do nothing;
+    -- ── VM-001 calculado: kWh/Nm3 (EM-002 / FQI-201) ─────────────────────────
+    if v_air_fqi201 > 0 then
+      insert into measurement_readings (measurement_point_id, value, recorded_at, quality, notes)
+      values (
+        '11000000-0000-0000-0000-000000000013',
+        round((v_kwh_em002 / v_air_fqi201)::numeric, 4),
+        r_ts,
+        'calculated',
+        'Auto: ratio(EM-002, FQI-201)'
+      )
+      on conflict (measurement_point_id, recorded_at) do nothing;
+    end if;
 
-    -- TT-101: steam temperature
-    insert into energy_readings_raw (measurement_point_id, timestamp, value, unit, source)
-    values ('11000000-0000-0000-0000-000000000007', r_ts, 165 + random() * 15, 'C', 'manual')
-    on conflict (measurement_point_id, timestamp) do nothing;
-
-    -- FQI-201: compressed air 250,000-350,000 Nm3
-    base_air := (250000 + random() * 100000) * seasonal;
-    insert into energy_readings_raw (measurement_point_id, timestamp, value, unit, source)
-    values ('11000000-0000-0000-0000-000000000008', r_ts, 15000000 + m * 300000 + base_air * m, 'Nm3', 'manual')
-    on conflict (measurement_point_id, timestamp) do nothing;
-
-    -- PT-201: air pressure
-    insert into energy_readings_raw (measurement_point_id, timestamp, value, unit, source)
-    values ('11000000-0000-0000-0000-000000000009', r_ts, 6.8 + random() * 1.0, 'bar', 'manual')
-    on conflict (measurement_point_id, timestamp) do nothing;
-
-    -- EM-301: chiller thermal energy
-    base_chw := (15000 + random() * 8000) * seasonal * 1.3;
-    insert into energy_readings_raw (measurement_point_id, timestamp, value, unit, source)
-    values ('11000000-0000-0000-0000-000000000010', r_ts, 800000 + m * 20000 + base_chw * m, 'TR-h', 'manual')
-    on conflict (measurement_point_id, timestamp) do nothing;
-
-    -- FT-301: chiller water flow
-    insert into energy_readings_raw (measurement_point_id, timestamp, value, unit, source)
-    values ('11000000-0000-0000-0000-000000000011', r_ts, 380 + random() * 50, 'GPM', 'manual')
-    on conflict (measurement_point_id, timestamp) do nothing;
-
-    -- FQI-401: gas consumption (correlated with steam)
-    insert into energy_readings_raw (measurement_point_id, timestamp, value, unit, source)
-    values ('11000000-0000-0000-0000-000000000012', r_ts, 5000000 + m * 17000 + base_steam * 0.085 * m, 'Nm3', 'manual')
-    on conflict (measurement_point_id, timestamp) do nothing;
   end loop;
 end $$;
+
+-- ── Lecturas "en vivo" recientes (hace ~1h) para que el mapa muestre verde ──
+-- Estas lecturas emulan datos frescos de IoT/manual y hacen que los nodos del
+-- canvas muestren quality='good' y sin badge "Pendiente lectura".
+do $$
+declare
+  live_ts timestamptz := now() - interval '75 minutes';
+begin
+  insert into measurement_readings (measurement_point_id, value, recorded_at, quality, notes) values
+    -- Electricidad (acumuladores — valor actual del totalizador)
+    ('11000000-0000-0000-0000-000000000001', 6858000,   live_ts, 'manual',     'Lectura en vivo — mapa SCADA'),
+    ('11000000-0000-0000-0000-000000000002', 3772150,   live_ts, 'good',       'IoT PM-001 Produccion'),
+    ('11000000-0000-0000-0000-000000000003', 1620400,   live_ts, 'good',       'IoT PM-002 HVAC'),
+    ('11000000-0000-0000-0000-000000000004',  984200,   live_ts, 'good',       'IoT EM-002 Compresor'),
+    -- Vapor
+    ('11000000-0000-0000-0000-000000000005', 13975400,  live_ts, 'manual',     'Lectura en vivo FQI-101'),
+    ('11000000-0000-0000-0000-000000000006',       8.1, live_ts, 'good',       'IoT PT-101 presion bar'),
+    ('11000000-0000-0000-0000-000000000007',     171.3, live_ts, 'good',       'IoT TT-101 temperatura C'),
+    -- Aire comprimido
+    ('11000000-0000-0000-0000-000000000008', 20620000,  live_ts, 'manual',     'Lectura en vivo FQI-201'),
+    ('11000000-0000-0000-0000-000000000009',       7.2, live_ts, 'good',       'IoT PT-201 presion bar'),
+    -- Agua helada
+    ('11000000-0000-0000-0000-000000000010', 1168000,   live_ts, 'manual',     'Lectura en vivo EM-301'),
+    ('11000000-0000-0000-0000-000000000011',     412.5, live_ts, 'good',       'IoT FT-301 flujo GPM'),
+    -- Gas natural
+    ('11000000-0000-0000-0000-000000000012', 6293000,   live_ts, 'manual',     'Lectura en vivo FQI-401'),
+    -- VM-001: eficiencia especifica aire 0.0477 kWh/Nm3
+    ('11000000-0000-0000-0000-000000000013',    0.0477, live_ts, 'calculated', 'Auto: ratio(EM-002, FQI-201)')
+  on conflict (measurement_point_id, recorded_at) do nothing;
+end $$;
+
 
 ------------------------------------------------------------
 -- Balances (2 examples)

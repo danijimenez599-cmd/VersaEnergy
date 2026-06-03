@@ -1,6 +1,7 @@
 import { useState, useEffect, type DragEvent } from 'react'
 import { ChevronDown, ChevronRight, Search, Clock, X } from 'lucide-react'
 import { useDiagramStore } from '../canvas/hooks/useDiagramStore'
+import { useSnapStore } from '../canvas/hooks/useSnapStore'
 import {
   ALL_PALETTE_GROUPS,
   getFilteredGroups,
@@ -47,10 +48,12 @@ const familyItemColors: Record<string, string> = {
 function PaletteItem({
   item,
   onDragStart,
+  onDragEnd,
   compact = false,
 }: {
   item: PaletteItemDef
   onDragStart: (e: DragEvent<HTMLDivElement>, item: PaletteItemDef) => void
+  onDragEnd: () => void
   compact?: boolean
 }) {
   const Icon = item.icon
@@ -60,6 +63,7 @@ function PaletteItem({
     <div
       draggable
       onDragStart={(e) => onDragStart(e, item)}
+      onDragEnd={onDragEnd}
       title={item.description}
       className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] border cursor-grab active:cursor-grabbing transition-all duration-100 select-none ${compact ? 'py-1' : ''} ${colorClass}`}
     >
@@ -73,6 +77,8 @@ function PaletteItem({
 
 export function NodePalette() {
   const diagramUtility = useDiagramStore((s) => s.diagramUtility)
+  const setIsDraggingMeasurement = useSnapStore((s) => s.setIsDraggingMeasurement)
+  const setHoveredEdgeId = useSnapStore((s) => s.setHoveredEdgeId)
 
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
@@ -97,9 +103,14 @@ export function NodePalette() {
     e.dataTransfer.setData('application/reactflow-type', item.type)
     e.dataTransfer.setData('application/reactflow-family', item.family)
     e.dataTransfer.effectAllowed = 'move'
-    // Track recent
+    if (item.family === 'measurement') setIsDraggingMeasurement(true)
     saveRecent(item)
     setRecents(loadRecents())
+  }
+
+  function handleDragEnd() {
+    setIsDraggingMeasurement(false)
+    setHoveredEdgeId(null)
   }
 
   // Filtered groups based on utility + search query
@@ -164,6 +175,7 @@ export function NodePalette() {
                   key={item.type}
                   item={item}
                   onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
                   compact
                 />
               ))}
@@ -199,6 +211,7 @@ export function NodePalette() {
                       key={item.type}
                       item={item}
                       onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
                     />
                   ))}
                 </div>

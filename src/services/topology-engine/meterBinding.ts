@@ -1,5 +1,5 @@
 import type { GraphEdge, GraphNode, MeasurementPoint, MeterAnchorBinding, UtilityGraph } from './graphTypes'
-import { getDownstreamNodes } from './graphQueries'
+import { getDownstreamNodes, getUpstreamNodes } from './graphQueries'
 
 const MEASUREMENT_NODE_TYPES = new Set([
   'flow_meter',
@@ -144,10 +144,11 @@ export function getMeterScope(graph: UtilityGraph, meterNodeId: string): MeterSc
   const measurementPointId = measurementPointIdFromNode(meterNode)
   const measurementPoint = measurementPointFromGraph(graph, measurementPointId)
   const anchor = meterAnchorFromNode(meterNode)
+  // 3b: prioridad — 1° signal edge (ETAP-like), 2° anchor JSON, 3° MP target
   const measuredNodeId =
+    measuredNodeFromSignalEdge(graph, meterNodeId) ||
     measuredNodeFromAnchor(graph, anchor) ||
-    measuredNodeFromMeasurementPoint(graph, measurementPointId) ||
-    measuredNodeFromSignalEdge(graph, meterNodeId)
+    measuredNodeFromMeasurementPoint(graph, measurementPointId)
 
   if (!measuredNodeId) return null
 
@@ -184,4 +185,20 @@ export function getMeterScopesByMeasurementPoint(graph: UtilityGraph): Map<strin
 
 export function getBoundaryMeterScopes(graph: UtilityGraph): MeterScope[] {
   return getMeterScopes(graph).filter((scope) => scope.role === 'boundary')
+}
+
+/**
+ * 3c — Auto-detecta si un medidor es frontera o submedidor.
+ * Lógica: si hay otro nodo medidor aguas ARRIBA del elemento medido → submeter.
+ * Sin medidores upstream → boundary.
+ * Resultado 'unknown' si no puede determinar el elemento medido.
+ */
+export function autoDetectMeterRole(meterNodeId: string, graph: UtilityGraph): MeterRole {
+  const scope = getMeterScope(graph, meterNodeId)
+  if (!scope) return 'unknown'
+
+  const upstreamNodes = getUpstreamNodes(scope.measuredNodeId, graph.nodes, graph.edges)
+  const hasMeterUpstream = upstreamNodes.some((n) => isMeasurementGraphNode(n))
+
+  return hasMeterUpstream ? 'submeter' : 'boundary'
 }

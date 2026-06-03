@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
-  X, Gauge, Plus, ExternalLink,
+  X, Gauge, ExternalLink,
   Settings, Activity, Wrench, Info, Trash2, FileText,
+  RefreshCw, Send, CheckCircle, Clock,
 } from 'lucide-react'
+import { SOURCE_TYPE_ICONS, SOURCE_TYPE_LABELS } from '@/services/measurement-engine/unitCatalog'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useDiagramStore } from '../canvas/hooks/useDiagramStore'
 import { supabase } from '@/services/supabase'
@@ -13,6 +15,8 @@ import { DiagramSummaryPanel } from './DiagramSummaryPanel'
 import { QUALITY_COLORS, relativeTime } from '@/services/measurement-engine/lastReadings'
 import { getUtilityLabel } from '@/shared/OperationalContext'
 import { getMeterAnchorFromNodeData } from '../canvas/meterScopePreview'
+import { compileFromRows } from '@/services/topology-engine/compiler'
+import { autoDetectMeterRole } from '@/services/topology-engine/meterBinding'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +28,7 @@ interface LinkedMP {
   measurement_type: string
   unit: string
   quantity: string
+  source_type: string
   meter_equipment_id: string | null
   last_calibration_date: string | null
   calibration_due_date: string | null
@@ -281,27 +286,60 @@ function MeasurementTab({
   const [linkedMPs, setLinkedMPs] = useState<LinkedMP[]>([])
   const [availableMPs, setAvailableMPs] = useState<LinkedMP[]>([])
   const [showLinkModal, setShowLinkModal] = useState(false)
+  const [mpSearch, setMpSearch] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Para auto-detect de rol necesitamos el grafo actual
   const diagramNodes = useDiagramStore((s) => s.nodes)
   const diagramEdges = useDiagramStore((s) => s.edges)
+
   const properties = node.data.properties || {}
   const measurementBinding = properties.measurement_binding as Record<string, unknown> | undefined
   const boundMeasurementPointId = typeof measurementBinding?.measurement_point_id === 'string'
     ? measurementBinding.measurement_point_id
     : null
-  const meterRole = measurementBinding?.role === 'boundary' ? 'boundary' : 'submeter'
+  const manualRole = measurementBinding?.role === 'boundary' ? 'boundary'
+    : measurementBinding?.role === 'submeter' ? 'submeter'
+    : null  // null = sin override manual → usar auto
   const meterAnchor = getMeterAnchorFromNodeData(node.data)
-  const physicalEdges = diagramEdges.filter((edge) => edge.data?.edgeType !== 'signal' && edge.data?.edgeType !== 'logical')
-  const anchorableNodes = diagramNodes.filter((item) => item.id !== node.id)
+
+  // 3c — Auto-detección de rol desde el grafo
+  const autoRole = useMemo(() => {
+    try {
+      const graph = compileFromRows(
+        'inspector-preview', 'inspector-preview',
+        diagramNodes.map((n) => ({
+          id: n.id, node_type: String(n.data.nodeType), tag: n.data.tag,
+          label: n.data.label, utility: (n.data.utility as string) || null,
+          position_x: n.position.x, position_y: n.position.y,
+          properties: n.data.properties || {},
+        })),
+        diagramEdges.map((e) => ({
+          id: e.id, source_node_id: e.source, target_node_id: e.target,
+          edge_type: String(e.data?.edgeType || 'pipe'),
+          utility: e.data?.utility || null,
+          flow_direction: String(e.data?.flowDirection || 'source_to_target'),
+          label: e.data?.label, loss_factor: e.data?.lossFactor,
+          leak_factor: e.data?.leakFactor, properties: e.data?.properties || {},
+        })),
+        [],
+      )
+      return autoDetectMeterRole(node.id, graph)
+    } catch {
+      return 'unknown' as const
+    }
+  }, [node.id, diagramNodes, diagramEdges])
+
+  const effectiveRole = manualRole || (autoRole !== 'unknown' ? autoRole : 'submeter')
+  const isAutoRole = !manualRole
+
+  // ── helpers ───────────────────────────────────────────────────────────────
 
   function updateMeasurementBinding(next: Record<string, unknown>) {
     onUpdate(node.id, {
       properties: {
         ...properties,
-        measurement_binding: {
-          ...(measurementBinding || {}),
-          ...next,
-        },
+        measurement_binding: { ...(measurementBinding || {}), ...next },
       },
     })
   }
@@ -310,43 +348,41 @@ function MeasurementTab({
     updateMeasurementBinding({ role })
   }
 
-  function setMeterAnchor(type: 'edge' | 'node', id: string, side?: string) {
-    if (!id) return
-    updateMeasurementBinding({
-      anchor: {
-        type,
-        id,
-        position: meterAnchor?.position ?? 0.5,
-        side: side || meterAnchor?.side || (type === 'edge' ? 'line' : 'load'),
-        offset: meterAnchor?.offset || { x: 0, y: -48 },
-      },
-    })
+  function clearMeterRoleOverride() {
+    const { role: _removed, ...rest } = measurementBinding || {}
+    onUpdate(node.id, { properties: { ...properties, measurement_binding: rest } })
   }
+
+  // ── data loading ──────────────────────────────────────────────────────────
 
   useEffect(() => {
     async function load() {
       setLoading(true)
-      const { data: nodeMps } = await supabase
-        .from('measurement_points')
-        .select('id, tag, name, utility, measurement_type, unit, quantity, meter_equipment_id, last_calibration_date, calibration_due_date')
-        .eq('target_type', 'node')
-        .eq('target_id', node.id)
+      const queries = [
+        supabase
+          .from('measurement_points')
+          .select('id, tag, name, utility, measurement_type, unit, quantity, source_type, meter_equipment_id, last_calibration_date, calibration_due_date')
+          .eq('target_type', 'node')
+          .eq('target_id', node.id),
+      ] as const
+
+      const [{ data: nodeMps }] = await Promise.all(queries)
 
       let bindingMps: LinkedMP[] = []
       if (boundMeasurementPointId) {
         const { data } = await supabase
           .from('measurement_points')
-          .select('id, tag, name, utility, measurement_type, unit, quantity, meter_equipment_id, last_calibration_date, calibration_due_date')
+          .select('id, tag, name, utility, measurement_type, unit, quantity, source_type, meter_equipment_id, last_calibration_date, calibration_due_date')
           .eq('id', boundMeasurementPointId)
         bindingMps = (data || []) as LinkedMP[]
       }
 
-      const mps = [...(nodeMps || []), ...bindingMps]
-        .filter((mp, index, list) => list.findIndex((item) => item.id === mp.id) === index)
+      const mps = [...(nodeMps || []), ...bindingMps].filter(
+        (mp, i, list) => list.findIndex((m) => m.id === mp.id) === i,
+      )
 
-      if (!mps || mps.length === 0) { setLinkedMPs([]); setLoading(false); return }
+      if (!mps.length) { setLinkedMPs([]); setLoading(false); return }
 
-      // Load last reading for each MP
       const mpIds = mps.map((m) => m.id)
       const { data: readings } = await supabase
         .from('measurement_readings')
@@ -362,14 +398,12 @@ function MeasurementTab({
         }
       }
 
-      setLinkedMPs(mps.map((mp) => {
-        const reading = latestByMp.get(mp.id)
-        return {
-          ...mp,
-          last_value: reading?.value ?? null,
-          last_reading_at: reading?.recorded_at ?? null,
-        } as LinkedMP
-      }))
+      setLinkedMPs(
+        mps.map((mp) => {
+          const reading = latestByMp.get(mp.id)
+          return { ...mp, last_value: reading?.value ?? null, last_reading_at: reading?.recorded_at ?? null } as LinkedMP
+        }),
+      )
       setLoading(false)
     }
     load()
@@ -379,36 +413,47 @@ function MeasurementTab({
     if (!selectedSiteId) return
     const { data } = await supabase
       .from('measurement_points')
-      .select('id, tag, name, utility, measurement_type, unit, quantity, meter_equipment_id, last_calibration_date, calibration_due_date')
+      .select('id, tag, name, utility, measurement_type, unit, quantity, source_type, meter_equipment_id, last_calibration_date, calibration_due_date')
       .eq('site_id', selectedSiteId)
-      .neq('target_type', 'node')
     setAvailableMPs((data || []).map((mp) => ({ ...mp, last_value: null, last_reading_at: null })) as LinkedMP[])
+    setMpSearch('')
     setShowLinkModal(true)
   }
 
   async function handleLink(mpId: string) {
-    await supabase.from('measurement_points').update({
-      target_type: 'node', target_id: node.id, updated_at: new Date().toISOString(),
-    }).eq('id', mpId)
     setShowLinkModal(false)
-    // Reload
+    // Fetch the full MP to get source_type and tag for the binding
     const { data: mps } = await supabase
       .from('measurement_points')
-      .select('id, tag, name, utility, measurement_type, unit, quantity, meter_equipment_id, last_calibration_date, calibration_due_date')
-      .eq('target_type', 'node').eq('target_id', node.id)
-    setLinkedMPs((mps || []).map((mp) => ({ ...mp, last_value: null, last_reading_at: null })) as LinkedMP[])
+      .select('id, tag, name, utility, measurement_type, unit, quantity, source_type, meter_equipment_id, last_calibration_date, calibration_due_date')
+      .eq('id', mpId)
+    const mp = mps?.[0]
+    // Update measurement_binding with source_type so the node icon works without a reading
+    updateMeasurementBinding({
+      measurement_point_id: mpId,
+      status: 'linked',
+      source_type: mp?.source_type || null,
+    })
+    if (mp) {
+      setLinkedMPs((prev) => {
+        const next = prev.filter((m) => m.id !== mpId)
+        return [...next, { ...mp, last_value: null, last_reading_at: null } as LinkedMP]
+      })
+    }
+  }
+
+  function handleChangeMp() {
+    openLinkModal()
   }
 
   async function handleUnlink(mp: LinkedMP) {
-    await supabase.from('measurement_points').update({
-      target_type: mp.meter_equipment_id ? 'equipment' : 'system',
-      target_id: mp.meter_equipment_id || '',
-      updated_at: new Date().toISOString(),
-    }).eq('id', mp.id)
+    // Clear measurement_binding if it's the bound one
+    if (boundMeasurementPointId === mp.id) {
+      updateMeasurementBinding({ measurement_point_id: null, status: 'unbound' })
+    }
     setLinkedMPs((prev) => prev.filter((m) => m.id !== mp.id))
   }
 
-  // Calibration alert
   function calibrationStatus(dueDate: string | null): 'ok' | 'warn' | 'overdue' {
     if (!dueDate) return 'ok'
     const daysUntil = (new Date(dueDate).getTime() - Date.now()) / 86_400_000
@@ -417,220 +462,405 @@ function MeasurementTab({
     return 'ok'
   }
 
+  // ── Bound MP (primary) ────────────────────────────────────────────────────
+
+  const boundMP = linkedMPs.find((m) => m.id === boundMeasurementPointId)
+  const ageMs = boundMP?.last_reading_at
+    ? Date.now() - new Date(boundMP.last_reading_at).getTime()
+    : null
+  const qualityColor = ageMs == null
+    ? QUALITY_COLORS.none
+    : ageMs < 7_200_000 ? QUALITY_COLORS.good
+    : ageMs < 14_400_000 ? QUALITY_COLORS.delayed
+    : QUALITY_COLORS.missing
+
+  const filteredAvailableMPs = availableMPs.filter((mp) => {
+    const q = mpSearch.trim().toLowerCase()
+    return !q || mp.tag.toLowerCase().includes(q) || mp.name.toLowerCase().includes(q)
+  })
+
+  // 4 — stale check para badge "Pendiente lectura"
+  function isReadingStale(mp: LinkedMP): boolean {
+    if (!mp.last_reading_at) return true
+    const ageH = (Date.now() - new Date(mp.last_reading_at).getTime()) / 3_600_000
+    // frecuency de source_config.frequency (daily=24h, weekly=168h, monthly=720h, on_demand=9999)
+    const freqH = mp.source_type === 'manual' ? 24 : 2  // conservative 24h for manual
+    return ageH > freqH
+  }
+
   return (
-    <>
-      {boundMeasurementPointId && (
-        <>
-          <div className="rounded-xl border border-purple-100 bg-purple-50 p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-purple-700">Rol en balance</p>
-                <p className="mt-1 text-[11px] text-purple-700">
-                  Frontera alimenta la entrada total; submedidor explica consumo aguas abajo.
+    <div className="space-y-4">
+
+      {/* ── Section 1: Punto de medición ──────────────────────────────────── */}
+      <section>
+        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+          Punto de medición
+        </p>
+
+        {loading ? (
+          <div className="flex items-center gap-2 py-3 text-xs text-gray-400">
+            <RefreshCw size={12} className="animate-spin" /> Cargando...
+          </div>
+        ) : boundMP ? (
+          <div className="rounded-xl border border-purple-200 bg-purple-50 p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-mono font-bold text-purple-800 truncate">{boundMP.tag}</p>
+                <p className="text-[11px] text-purple-600 truncate mt-0.5">{boundMP.name}</p>
+                <p className="text-[10px] text-purple-400 mt-0.5">
+                  {boundMP.quantity} · {boundMP.unit}
+                  {boundMP.source_type && (
+                    <span className="ml-1.5">
+                      · {SOURCE_TYPE_ICONS[boundMP.source_type]} {SOURCE_TYPE_LABELS[boundMP.source_type]}
+                    </span>
+                  )}
                 </p>
               </div>
-              <Gauge size={16} className="mt-0.5 shrink-0 text-purple-500" />
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-1 rounded-lg bg-white p-1 border border-purple-100">
               <button
-                onClick={() => setMeterRole('submeter')}
-                className={`rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors ${
-                  meterRole === 'submeter'
-                    ? 'bg-gray-900 text-white'
-                    : 'text-gray-500 hover:bg-gray-50'
-                }`}
+                onClick={handleChangeMp}
+                className="text-[10px] text-purple-500 hover:text-purple-700 underline shrink-0 cursor-pointer"
               >
-                Submedidor
-              </button>
-              <button
-                onClick={() => setMeterRole('boundary')}
-                className={`rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors ${
-                  meterRole === 'boundary'
-                    ? 'bg-purple-600 text-white'
-                    : 'text-gray-500 hover:bg-purple-50'
-                }`}
-              >
-                Frontera
+                Cambiar
               </button>
             </div>
+            {/* Last reading */}
+            {boundMP.last_value != null ? (
+              <div className="mt-2.5 flex items-center gap-2">
+                <span className="text-sm font-bold text-purple-900">
+                  {Number(boundMP.last_value).toLocaleString('es-MX', { maximumFractionDigits: 2 })} {boundMP.unit}
+                </span>
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: qualityColor }} />
+                <span className="text-[10px] text-purple-400">
+                  {boundMP.last_reading_at ? relativeTime(boundMP.last_reading_at) : ''}
+                </span>
+                {/* 4 — Pendiente lectura badge */}
+                {boundMP.source_type === 'manual' && isReadingStale(boundMP) && (
+                  <span className="flex items-center gap-0.5 text-[9px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5 ml-1">
+                    <Clock size={8} />
+                    Pendiente
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div className="mt-2 flex items-center gap-2">
+                <p className="text-[11px] text-purple-400 italic">Sin lecturas aún</p>
+                {boundMP.source_type === 'manual' && (
+                  <span className="flex items-center gap-0.5 text-[9px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5">
+                    <Clock size={8} />
+                    Pendiente
+                  </span>
+                )}
+              </div>
+            )}
+            {/* Calibration */}
+            {boundMP.calibration_due_date && (() => {
+              const cal = calibrationStatus(boundMP.calibration_due_date)
+              return cal !== 'ok' ? (
+                <p className={`mt-1.5 text-[10px] font-semibold ${cal === 'overdue' ? 'text-red-600' : 'text-amber-600'}`}>
+                  {cal === 'overdue' ? '⚠ Calibración vencida' : `Calibrar antes del ${boundMP.calibration_due_date}`}
+                </p>
+              ) : null
+            })()}
           </div>
+        ) : (
+          <button
+            onClick={openLinkModal}
+            className="w-full flex items-center gap-2 rounded-xl border-2 border-dashed border-gray-200 px-3 py-3 text-left hover:border-[#1B6FF8]/40 hover:bg-blue-50/40 transition-colors group cursor-pointer"
+          >
+            <Gauge size={16} className="text-gray-300 group-hover:text-[#1B6FF8] shrink-0" />
+            <div>
+              <p className="text-[12px] text-gray-400 group-hover:text-[#1B6FF8] font-medium">Sin MP vinculado</p>
+              <p className="text-[10px] text-gray-300">Toca para seleccionar un punto de medición</p>
+            </div>
+          </button>
+        )}
+      </section>
 
-          <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-700">Punto medido</p>
-            <p className="mt-1 text-[11px] text-blue-700">
-              Ancla el instrumento al tramo o equipo que representa fisicamente.
-            </p>
-            <div className="mt-3 space-y-2">
-              <InspectorSelect
-                label="Anclar a"
-                value={meterAnchor?.type || 'edge'}
-                onChange={(value) => {
-                  if (value === 'node') {
-                    const fallbackNode = anchorableNodes[0]
-                    setMeterAnchor('node', fallbackNode?.id || '')
-                  } else {
-                    const fallbackEdge = physicalEdges[0]
-                    setMeterAnchor('edge', fallbackEdge?.id || '')
-                  }
-                }}
-                options={['edge', 'node']}
-                renderOption={(value) => value === 'edge' ? 'Linea / tramo' : 'Equipo / nodo'}
-              />
-              {meterAnchor?.type !== 'node' ? (
-                <InspectorSelect
-                  label="Linea medida"
-                  value={meterAnchor?.type === 'edge' ? meterAnchor.id : ''}
-                  onChange={(value) => setMeterAnchor('edge', value)}
-                  options={physicalEdges.map((edge) => edge.id)}
-                  renderOption={(value) => {
-                    const edge = physicalEdges.find((item) => item.id === value)
-                    return edge ? `${edge.data?.tag || edge.data?.label || 'Linea'} · ${edge.data?.edgeType}` : value
-                  }}
-                />
-              ) : (
-                <InspectorSelect
-                  label="Equipo/nodo medido"
-                  value={meterAnchor.id}
-                  onChange={(value) => setMeterAnchor('node', value)}
-                  options={anchorableNodes.map((item) => item.id)}
-                  renderOption={(value) => {
-                    const target = anchorableNodes.find((item) => item.id === value)
-                    return target ? `${target.data.tag || target.data.label} · ${target.data.nodeType}` : value
-                  }}
-                />
-              )}
-              <InspectorSelect
-                label="Lado"
-                value={meterAnchor?.side || 'line'}
-                onChange={(value) => {
-                  const type = meterAnchor?.type || 'edge'
-                  const id = meterAnchor?.id || (type === 'edge' ? physicalEdges[0]?.id : anchorableNodes[0]?.id)
-                  setMeterAnchor(type, id || '', value)
-                }}
-                options={['line', 'source', 'load', 'return']}
-                renderOption={(value) => ({
-                  line: 'Sobre linea',
-                  source: 'Lado fuente',
-                  load: 'Lado carga',
-                  return: 'Retorno',
-                }[value] || value)}
-              />
-            </div>
-          </div>
-        </>
+      {/* ── Phase 4: Ingreso manual inline ───────────────────────────────── */}
+      {boundMP && boundMP.source_type === 'manual' && (
+        <ManualReadingSection
+          mp={boundMP}
+          onSaved={(newValue, recordedAt) => {
+            setLinkedMPs((prev) =>
+              prev.map((m) =>
+                m.id === boundMP.id
+                  ? { ...m, last_value: newValue, last_reading_at: recordedAt }
+                  : m,
+              ),
+            )
+          }}
+        />
       )}
 
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-          Puntos de medición ({linkedMPs.length})
-        </p>
-        <button
-          onClick={openLinkModal}
-          className="flex items-center gap-1 text-[11px] text-[#1B6FF8] hover:underline cursor-pointer"
-        >
-          <Plus size={11} /> Vincular
-        </button>
-      </div>
-
-      {loading ? (
-        <p className="text-xs text-gray-400 py-2">Cargando...</p>
-      ) : linkedMPs.length === 0 ? (
-        <div className="bg-gray-50 rounded-xl p-3 text-center">
-          <Gauge size={18} className="text-gray-300 mx-auto mb-1.5" />
-          <p className="text-[11px] text-gray-400">Sin medidores vinculados</p>
-          <div className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-500 border border-red-100 mt-1.5">
-            Sin cobertura
+      {/* ── Section 2: Ancla física (informativa — editable via conexión visual en Fase 3) ── */}
+      {meterAnchor && (
+        <section>
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+            Ancla física
+          </p>
+          <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2">
+            <p className="text-[11px] text-gray-600 font-medium">
+              {meterAnchor.type === 'edge' ? 'Sobre línea' : 'En equipo/nodo'}
+              {meterAnchor.side && meterAnchor.side !== 'line' && (
+                <span className="ml-1 text-gray-400">· {
+                  meterAnchor.side === 'source' ? 'lado fuente' :
+                  meterAnchor.side === 'load' ? 'lado carga' :
+                  meterAnchor.side === 'return' ? 'retorno' : meterAnchor.side
+                }</span>
+              )}
+            </p>
+            <p className="text-[10px] text-gray-400 mt-0.5 font-mono">{meterAnchor.id.slice(0, 12)}…</p>
+            <p className="text-[10px] text-gray-300 mt-1.5">
+              Para cambiar el ancla, conecta el medidor al elemento en el canvas con una línea de señal.
+            </p>
           </div>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {linkedMPs.map((mp) => {
-            const calStatus = calibrationStatus(mp.calibration_due_date)
-            const ageMs = mp.last_reading_at ? Date.now() - new Date(mp.last_reading_at).getTime() : null
-            const qualityColor = ageMs == null ? QUALITY_COLORS.none
-              : ageMs < 7_200_000 ? QUALITY_COLORS.good
-              : ageMs < 14_400_000 ? QUALITY_COLORS.delayed
-              : QUALITY_COLORS.missing
+        </section>
+      )}
 
-            return (
-              <div key={mp.id} className="border border-gray-100 rounded-xl p-3 bg-gray-50">
-                <div className="flex items-start justify-between gap-2">
+      {/* ── Section 3: Rol en balance (3c — auto-detectado) ─────────────── */}
+      <section>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+            Rol en balance
+          </p>
+          {isAutoRole && autoRole !== 'unknown' && (
+            <span className="text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5 font-medium">
+              🤖 auto
+            </span>
+          )}
+          {!isAutoRole && (
+            <button
+              onClick={clearMeterRoleOverride}
+              className="text-[10px] text-gray-400 hover:text-gray-600 underline cursor-pointer"
+              title="Volver a detección automática"
+            >
+              auto
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setMeterRole('submeter')}
+            className={`flex flex-col items-start rounded-xl border-2 px-3 py-2.5 text-left transition-colors cursor-pointer ${
+              effectiveRole === 'submeter'
+                ? 'border-gray-800 bg-gray-800 text-white'
+                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <span className="text-[12px] font-bold">Submedidor</span>
+            <span className={`text-[10px] mt-0.5 leading-tight ${effectiveRole === 'submeter' ? 'text-gray-300' : 'text-gray-400'}`}>
+              Explica consumo aguas abajo
+            </span>
+          </button>
+          <button
+            onClick={() => setMeterRole('boundary')}
+            className={`flex flex-col items-start rounded-xl border-2 px-3 py-2.5 text-left transition-colors cursor-pointer ${
+              effectiveRole === 'boundary'
+                ? 'border-purple-600 bg-purple-600 text-white'
+                : 'border-purple-200 bg-purple-50 text-purple-800 hover:bg-purple-100'
+            }`}
+          >
+            <span className="text-[12px] font-bold">Frontera</span>
+            <span className={`text-[10px] mt-0.5 leading-tight ${effectiveRole === 'boundary' ? 'text-purple-200' : 'text-purple-500'}`}>
+              Entrada total al sistema
+            </span>
+          </button>
+        </div>
+        {isAutoRole && (
+          <p className="text-[10px] text-gray-400 mt-1.5 italic">
+            Detectado automáticamente del grafo · toca un botón para fijar manualmente
+          </p>
+        )}
+      </section>
+
+      {/* ── Section 4: Otras lecturas vinculadas ──────────────────────────── */}
+      {linkedMPs.filter((m) => m.id !== boundMeasurementPointId).length > 0 && (
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+              Lecturas adicionales ({linkedMPs.filter((m) => m.id !== boundMeasurementPointId).length})
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            {linkedMPs.filter((m) => m.id !== boundMeasurementPointId).map((mp) => {
+              const age = mp.last_reading_at ? Date.now() - new Date(mp.last_reading_at).getTime() : null
+              const qColor = age == null ? QUALITY_COLORS.none
+                : age < 7_200_000 ? QUALITY_COLORS.good
+                : age < 14_400_000 ? QUALITY_COLORS.delayed
+                : QUALITY_COLORS.missing
+              return (
+                <div key={mp.id} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                   <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-mono font-semibold text-[#1B6FF8] truncate">{mp.tag}</p>
-                    <p className="text-[10px] text-gray-500 truncate">{mp.name}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: qColor }} />
+                      <span className="text-[10px] text-gray-400">
+                        {mp.last_value != null
+                          ? `${Number(mp.last_value).toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${mp.unit}`
+                          : 'Sin lectura'}
+                      </span>
+                    </div>
                   </div>
                   <button
                     onClick={() => handleUnlink(mp)}
-                    className="text-gray-300 hover:text-red-500 cursor-pointer shrink-0 p-0.5"
+                    className="text-gray-300 hover:text-red-500 cursor-pointer shrink-0"
                     title="Desvincular"
                   >
                     <X size={12} />
                   </button>
                 </div>
-
-                {/* Value */}
-                {mp.last_value != null ? (
-                  <p className="text-sm font-bold text-gray-800 mt-1.5">
-                    {Number(mp.last_value).toLocaleString('es-MX', { maximumFractionDigits: 2 })} {mp.unit}
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-gray-400 mt-1 italic">Sin lectura</p>
-                )}
-
-                {/* Quality + timestamp */}
-                <div className="flex items-center gap-1.5 mt-1">
-                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: qualityColor }} />
-                  <span className="text-[10px] text-gray-400">
-                    {mp.last_reading_at ? relativeTime(mp.last_reading_at) : 'Sin datos'}
-                  </span>
-                  <span className="text-[10px] text-gray-300">· {mp.measurement_type}</span>
-                </div>
-
-                {/* Calibration */}
-                {mp.calibration_due_date && (
-                  <p className={`text-[10px] mt-1 ${calStatus === 'overdue' ? 'text-red-600' : calStatus === 'warn' ? 'text-amber-600' : 'text-gray-400'}`}>
-                    {calStatus === 'overdue' ? '⚠ Calibración vencida' : `Calibra: ${mp.calibration_due_date}`}
-                  </p>
-                )}
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        </section>
       )}
 
-      {/* Link modal */}
+      {/* ── Link MP modal ─────────────────────────────────────────────────── */}
       {showLinkModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowLinkModal(false)}>
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-2xl p-4 w-80 max-h-[70vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setShowLinkModal(false)}
+        >
+          <div
+            className="bg-white border border-gray-200 rounded-2xl shadow-2xl p-4 w-80 max-h-[72vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-gray-800">Vincular medidor</p>
-              <button onClick={() => setShowLinkModal(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer"><X size={14} /></button>
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Seleccionar MP</p>
+                <p className="text-[11px] text-gray-400">para <span className="font-mono text-[#1B6FF8]">{node.data.tag}</span></p>
+              </div>
+              <button onClick={() => setShowLinkModal(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer">
+                <X size={14} />
+              </button>
             </div>
-            <p className="text-xs text-gray-500 mb-3">
-              Selecciona un MeasurementPoint para vincular a <span className="font-mono text-[#1B6FF8]">{node.data.tag}</span>.
-            </p>
+
+            {/* Search */}
+            <div className="relative mb-2.5">
+              <Activity size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={mpSearch}
+                onChange={(e) => setMpSearch(e.target.value)}
+                autoFocus
+                placeholder="Buscar TAG o nombre..."
+                className="w-full rounded-lg border border-gray-200 py-1.5 pl-8 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-[#1B6FF8]/20"
+              />
+            </div>
+
             <div className="flex-1 overflow-y-auto space-y-1.5">
-              {availableMPs.length === 0 ? (
-                <p className="text-xs text-gray-400 py-4 text-center">No hay puntos disponibles.</p>
-              ) : availableMPs.map((mp) => (
+              {filteredAvailableMPs.length === 0 ? (
+                <p className="text-xs text-gray-400 py-4 text-center">Sin resultados.</p>
+              ) : filteredAvailableMPs.map((mp) => (
                 <button
                   key={mp.id}
                   onClick={() => handleLink(mp.id)}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border border-gray-200 hover:border-[#1B6FF8] hover:bg-[#F0F6FF] text-left cursor-pointer transition-colors"
+                  className="w-full flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 hover:border-[#1B6FF8] hover:bg-[#F0F6FF] text-left cursor-pointer transition-colors"
                 >
-                  <Gauge size={14} className="text-[#1B6FF8] shrink-0" />
+                  <Gauge size={13} className="text-[#1B6FF8] shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-mono font-semibold text-[#1B6FF8] truncate">{mp.tag}</p>
-                    <p className="text-xs text-gray-400 truncate">{mp.name} · {mp.unit}</p>
+                    <p className="text-[12px] font-mono font-bold text-[#1B6FF8] truncate">{mp.tag}</p>
+                    <p className="text-[11px] text-gray-500 truncate">{mp.name}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{mp.quantity} · {mp.unit}</p>
                   </div>
-                  <ExternalLink size={12} className="text-gray-300 shrink-0" />
                 </button>
               ))}
             </div>
           </div>
         </div>
       )}
-    </>
+    </div>
+  )
+}
+
+// ── Phase 4: ManualReadingSection ─────────────────────────────────────────────
+// Permite al operador ingresar una lectura manual directamente desde el inspector
+// del mapa, sin salir al módulo de Medición.
+
+function ManualReadingSection({
+  mp,
+  onSaved,
+}: {
+  mp: { id: string; tag: string; unit: string; last_value: number | null }
+  onSaved: (value: number, recordedAt: string) => void
+}) {
+  const [inputValue, setInputValue] = useState(
+    mp.last_value != null ? String(mp.last_value) : '',
+  )
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
+
+  async function handleSave() {
+    const numVal = parseFloat(inputValue)
+    if (isNaN(numVal)) { setErrorMsg('Ingresa un número válido'); return }
+    setStatus('saving')
+    setErrorMsg('')
+    const recordedAt = new Date().toISOString()
+    const { error } = await supabase
+      .from('measurement_readings')
+      .insert({
+        measurement_point_id: mp.id,
+        value: numVal,
+        recorded_at: recordedAt,
+        quality: 'manual',
+        notes: 'Ingresado desde el mapa',
+      })
+    if (error) {
+      setStatus('error')
+      setErrorMsg(error.message)
+      return
+    }
+    setStatus('saved')
+    onSaved(numVal, recordedAt)
+    setTimeout(() => setStatus('idle'), 2500)
+  }
+
+  return (
+    <section>
+      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+        Registrar lectura
+      </p>
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2.5">
+        <p className="text-[10px] text-amber-700">
+          ⌨ Fuente manual — ingresa el valor actual del instrumento
+        </p>
+        <div className="flex items-center gap-2">
+          <div className="flex-1 relative">
+            <input
+              type="number"
+              step="any"
+              value={inputValue}
+              onChange={(e) => { setInputValue(e.target.value); setStatus('idle') }}
+              onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+              placeholder="Valor..."
+              className="w-full px-2.5 py-1.5 rounded-lg border border-amber-300 bg-white text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 transition-shadow"
+            />
+          </div>
+          <span className="text-[11px] text-amber-600 font-mono shrink-0">{mp.unit}</span>
+          <button
+            onClick={handleSave}
+            disabled={status === 'saving'}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-semibold transition-colors disabled:opacity-60 cursor-pointer shrink-0"
+          >
+            {status === 'saving' ? (
+              <RefreshCw size={11} className="animate-spin" />
+            ) : status === 'saved' ? (
+              <CheckCircle size={11} />
+            ) : (
+              <Send size={11} />
+            )}
+            {status === 'saved' ? 'Guardado' : 'Registrar'}
+          </button>
+        </div>
+        {errorMsg && (
+          <p className="text-[10px] text-red-600 font-medium">{errorMsg}</p>
+        )}
+        {status === 'saved' && (
+          <p className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+            <CheckCircle size={10} /> Lectura registrada · el valor se actualiza en la burbuja
+          </p>
+        )}
+      </div>
+    </section>
   )
 }
 

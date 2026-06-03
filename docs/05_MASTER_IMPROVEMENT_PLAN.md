@@ -9,12 +9,37 @@ amigable desde UI.
 La premisa es que el backend ya tiene buena base. El trabajo futuro debe ser
 incremental, por fases cortas, evitando reescrituras grandes.
 
+## Refactor MP-R ejecutado (2026-06-02)
+
+Entre las fases MP originales y el trabajo futuro, se ejecuto un refactor
+arquitectonico de 8 fases (MP-R0 a MP-R7) documentado previamente. Este refactor
+cambio la arquitectura de navegacion y convergio el modelo con el CMMS.
+
+| Fase | Nombre | Estado |
+|------|--------|--------|
+| MP-R0 | Cierre de identidad visual | ✅ |
+| MP-R1 | `<AssetTree>` compartido | ✅ |
+| MP-R2 | Shell asset-tree-first + lentes | ✅ |
+| MP-R3 | Migrar disciplinas a lentes | ✅ |
+| MP-R4 | Mantenimiento de medidores | ✅ |
+| MP-R5 | Admin prerequisitos + RLS | ✅ |
+| MP-R6 | Flujos transversales pulidos | ✅ |
+| MP-R7 | Convergencia arbol con CMMS | ✅ |
+
+Deuda tecnica pendiente del refactor:
+
+- Admin UI no conectada a Supabase (resuelve en MP-12).
+- Reportes PDF/CSV son mock (resuelve en MP-11).
+- Cut-over de datos legacy a `assets_compat` (script pendiente).
+- Code splitting para chunks > 500 kB.
+- Inline `fontFamily` residuales.
+
 ## Vision del producto maduro
 
 VersaEnergy debe guiar este flujo:
 
 ```txt
-Modelo -> Mapa -> Medicion -> Calidad -> Balance -> EnPI ->
+Equipos -> Mapa -> Medicion -> Calidad -> Balance -> EnPI ->
 Oportunidad -> Accion/Proyecto -> Verificacion -> SGEn -> Reporte
 ```
 

@@ -15,34 +15,34 @@ Priority:
 
 If information is missing:
 - Ask me at most 1 to 3 concrete questions.
-- Do not ask me for file names if AGENTS.md and docs/fase-NN.md can infer them.
+- Do not ask me for file names if AGENTS.md and docs/modules/<MODULE>.md can infer them.
 - If the risk is low and reversible, proceed with explicit assumptions.
 
 Before editing, provide:
 - Goal.
-- Likely phase/module.
+- Likely module.
 - Acceptance criteria.
 - Docs/files to read.
 - Risks.
 - Blocking questions, if any.
-- Recommended model class.
 - Verification.
 ```
 
-## 2. Phase Implementation
+## 2. Module Implementation
 
 ```text
-Work on VersaEnergy using AGENTS.md and codex.delegation.toml.
+Work on VersaEnergy using AGENTS.md.
 
-Phase/task:
-<phase or task>
+Module/task:
+<module or task>
 
 Scope:
 <known module/files if known>
 
 Rules:
 - Read AGENTS.md first.
-- Read the relevant docs/fase-NN.md.
+- Read docs/modules/<MODULE>.md for the affected module.
+- Read docs/04_CURRENT_STATE_REFERENCE.md and docs/05_MASTER_IMPROVEMENT_PLAN.md.
 - No runtime mocks.
 - Persist operational data in Supabase.
 - Keep calculations in src/services/.
@@ -50,7 +50,7 @@ Rules:
 
 Verification:
 - npm run build.
-- npm run lint if the change is broad or touches shared code.
+- Update docs per docs/VERIFY.md.
 ```
 
 ## 3. Review Without Editing
@@ -59,7 +59,7 @@ Verification:
 Review VersaEnergy without editing files.
 
 Scope:
-<phase/module/files/diff>
+<module/files/diff>
 
 Look for:
 - graph-first violations;
@@ -68,7 +68,7 @@ Look for:
 - unit conversion risks;
 - RLS/auth/schema risks;
 - React components doing service calculations;
-- docs inconsistent with current phase status.
+- docs inconsistent with current state.
 
 Return findings first, ordered by severity, with file/line references.
 ```
@@ -82,10 +82,9 @@ Task:
 <what I want>
 
 Include:
-- docs to read;
+- docs/modules/ to read;
 - probable files;
 - risks;
-- subtasks suitable for cheap workers;
 - acceptance criteria;
 - verification commands.
 ```

@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, useReactFlow, type EdgeProps } from '@xyflow/react'
 import { useDiagramStore } from '../hooks/useDiagramStore'
+import { useSnapStore } from '../hooks/useSnapStore'
 import { getMeterNodesAnchoredToEdge, getSelectedMeterScope } from '../meterScopePreview'
 
 const utilityStyles: Record<string, { color: string; dash?: string }> = {
@@ -103,6 +104,8 @@ const UtilityEdge = memo((props: EdgeProps) => {
   const allEdges = useDiagramStore((s) => s.edges)
   const selectedElement = useDiagramStore((s) => s.selectedElement)
   const selectElement = useDiagramStore((s) => s.selectElement)
+  const hoveredEdgeId = useSnapStore((s) => s.hoveredEdgeId)
+  const isSnapTarget = hoveredEdgeId === id
   const selectedMeterScope = useMemo(
     () => getSelectedMeterScope(allNodes, allEdges, selectedElement),
     [allNodes, allEdges, selectedElement],
@@ -145,13 +148,30 @@ const UtilityEdge = memo((props: EdgeProps) => {
       <BaseEdge
         path={edgePath}
         style={{
-          stroke: color,
-          strokeWidth: selected || isInSelectedMeterScope ? strokeWidth + 1.5 : strokeWidth,
+          stroke: isSnapTarget ? '#10b981' : color,
+          strokeWidth: selected || isInSelectedMeterScope || isSnapTarget ? strokeWidth + 1.5 : strokeWidth,
           strokeDasharray,
-          filter: selected || isInSelectedMeterScope ? `drop-shadow(0 0 5px ${color}80)` : undefined,
+          filter: isSnapTarget
+            ? 'drop-shadow(0 0 6px #10b98180)'
+            : selected || isInSelectedMeterScope
+              ? `drop-shadow(0 0 5px ${color}80)`
+              : undefined,
+          transition: 'stroke 0.15s, filter 0.15s',
         }}
-        markerEnd={`url(#${markerId})`}
+        markerEnd={edgeType === 'signal' ? undefined : `url(#${markerId})`}
       />
+
+      {/* Tap-dot ISA en el extremo target de las signal edges (3b) */}
+      {edgeType === 'signal' && (
+        <circle
+          cx={targetX}
+          cy={targetY}
+          r={4}
+          fill={color}
+          stroke="white"
+          strokeWidth={2}
+        />
+      )}
       {displayLabel && (
         <EdgeLabelRenderer>
           <DraggableEdgeLabel
