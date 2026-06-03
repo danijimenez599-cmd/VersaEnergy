@@ -21,7 +21,7 @@ import { getTemplatesForUtility, instantiateTemplate } from './DiagramTemplates'
 import type { DiagramTemplate } from './DiagramTemplates'
 import { supabase } from '@/services/supabase'
 import {
-  Save, Plus, Trash2, Network, ShieldCheck, Globe,
+  ArrowRight, Save, Plus, Trash2, Network, ShieldCheck, Globe,
   CheckCircle, ChevronLeft, MoreHorizontal, Filter, History, Pencil,
 } from 'lucide-react'
 import type { ValidationIssue } from '@/services/topology-engine/graphTypes'
@@ -68,6 +68,118 @@ const UTILITY_BADGE: Record<string, string> = {
   lpg:              'bg-amber-100 text-amber-700 border-amber-200',
   solar_generation: 'bg-lime-100 text-lime-700 border-lime-200',
   battery_storage:  'bg-indigo-100 text-indigo-700 border-indigo-200',
+}
+
+// ── Utility gradient colors for card preview zone ─────────────────────────────
+
+const UTILITY_COLOR: Record<string, { from: string; to: string }> = {
+  electricity:      { from: '#1B6FF8', to: '#1453c0' },
+  natural_gas:      { from: '#ea580c', to: '#c44a09' },
+  steam:            { from: '#7c3aed', to: '#6225cc' },
+  compressed_air:   { from: '#0d9488', to: '#0a7a72' },
+  chilled_water:    { from: '#0891b2', to: '#0670a0' },
+  hot_water:        { from: '#e11d48', to: '#be1239' },
+  industrial_water: { from: '#0ea5e9', to: '#0b88c3' },
+  diesel:           { from: '#ca8a04', to: '#a37003' },
+  lpg:              { from: '#d97706', to: '#b45309' },
+  solar_generation: { from: '#65a30d', to: '#4d7a0a' },
+  battery_storage:  { from: '#4f46e5', to: '#3730a3' },
+}
+
+// ── Diagram card with preview zone ───────────────────────────────────────────
+
+function DiagramCard({
+  name, utilityType, utilityLabel, utilityBadge, utilityColor, statusCfg, onOpen, onDelete,
+}: {
+  name: string
+  utilityType: string | null
+  utilityLabel: string | null
+  utilityBadge: string
+  utilityColor: { from: string; to: string }
+  statusCfg: { label: string; color: string; dot: string }
+  onOpen: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div
+      className="group cursor-pointer overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+      onClick={onOpen}
+    >
+      {/* Preview zone */}
+      <div
+        className="relative h-32 overflow-hidden"
+        style={{ background: `linear-gradient(135deg, ${utilityColor.from}, ${utilityColor.to})` }}
+      >
+        {/* Abstract network SVG */}
+        <svg
+          className="absolute inset-0 h-full w-full"
+          viewBox="0 0 280 128"
+          preserveAspectRatio="xMidYMid slice"
+          aria-hidden="true"
+        >
+          {/* Background dot grid */}
+          {[0, 1, 2, 3, 4, 5].map((row) =>
+            [0, 1, 2, 3, 4, 5, 6, 7, 8].map((col) => (
+              <circle key={`${row}-${col}`} cx={col * 32 + 8} cy={row * 22 + 8} r={1.2} fill="white" opacity={0.15} />
+            ))
+          )}
+          {/* Network edges */}
+          <line x1="55" y1="90" x2="110" y2="55" stroke="white" strokeWidth={1.5} opacity={0.45} />
+          <line x1="110" y1="55" x2="175" y2="72" stroke="white" strokeWidth={1.5} opacity={0.45} />
+          <line x1="175" y1="72" x2="220" y2="45" stroke="white" strokeWidth={1.5} opacity={0.45} />
+          <line x1="110" y1="55" x2="145" y2="100" stroke="white" strokeWidth={1} opacity={0.3} />
+          <line x1="175" y1="72" x2="155" y2="108" stroke="white" strokeWidth={1} opacity={0.3} />
+          {/* Network nodes — outer glow */}
+          <circle cx="55" cy="90" r="11" fill="white" opacity={0.15} />
+          <circle cx="110" cy="55" r="14" fill="white" opacity={0.15} />
+          <circle cx="175" cy="72" r="11" fill="white" opacity={0.15} />
+          <circle cx="220" cy="45" r="10" fill="white" opacity={0.15} />
+          <circle cx="145" cy="100" r="8" fill="white" opacity={0.15} />
+          {/* Network nodes — inner */}
+          <circle cx="55" cy="90" r="5.5" fill="white" opacity={0.7} />
+          <circle cx="110" cy="55" r="7" fill="white" opacity={0.8} />
+          <circle cx="175" cy="72" r="5.5" fill="white" opacity={0.7} />
+          <circle cx="220" cy="45" r="5" fill="white" opacity={0.65} />
+          <circle cx="145" cy="100" r="4" fill="white" opacity={0.6} />
+          <circle cx="155" cy="108" r="3.5" fill="white" opacity={0.5} />
+        </svg>
+
+        {/* Status badge */}
+        <div className="absolute right-3 top-3">
+          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold backdrop-blur-sm ${statusCfg.color}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${statusCfg.dot}`} />
+            {statusCfg.label}
+          </span>
+        </div>
+
+        {/* Delete button — appears on hover */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          className="absolute left-3 top-3 grid h-7 w-7 cursor-pointer place-items-center rounded-lg bg-black/20 text-white opacity-0 backdrop-blur-sm transition-opacity hover:bg-red-500 group-hover:opacity-100"
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
+
+      {/* Card body */}
+      <div className="p-4">
+        <h3 className="mb-3 text-sm font-bold leading-snug text-slate-900 line-clamp-2">{name}</h3>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {utilityType && utilityLabel && (
+            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${utilityBadge}`}>
+              {utilityLabel}
+            </span>
+          )}
+        </div>
+
+        {/* "Abrir" hint — appears on hover */}
+        <div className="mt-3 flex items-center gap-1 text-[11px] font-bold text-brand-blue opacity-0 transition-opacity group-hover:opacity-100">
+          Abrir diagrama <ArrowRight size={11} />
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ── Page component ────────────────────────────────────────────────────────────
@@ -294,163 +406,148 @@ export default function MapaPage() {
   // ── Diagram list view ─────────────────────────────────────────────────────
 
   if (!diagramId) {
+    const filteredDiagrams = (selectedUtilityType
+      ? visibleDiagrams.filter((d) => d.utility_type === selectedUtilityType || !d.utility_type)
+      : visibleDiagrams
+    ).filter((d) => filterStatus === 'all' || d.status === filterStatus)
+
     return (
-      <div className="h-full flex flex-col p-6 bg-[#F4F7FB]">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-            Mapa Energy &amp; Utilities
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">Canvas para diagramas de redes de utilities</p>
-        </div>
+      <div className="flex h-full flex-col space-y-4 overflow-y-auto p-5">
 
-        {/* Filters + header */}
-        <div className="flex items-center gap-3 mb-5">
-          <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => { setShowNewDiag(true); setNewDiagStep('utility') }} disabled={!selectedSiteId}>
-            Nuevo diagrama
-          </Button>
-          {/* Status filter */}
-          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl px-1 py-1">
-            {['all', 'draft', 'published', 'archived'].map((s) => (
-              <button
-                key={s}
-                onClick={() => setFilterStatus(s)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
-                  filterStatus === s ? 'bg-[#1B6FF8] text-white' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {s === 'all' ? 'Todos' : STATUS_CONFIG[s]?.label || s}
-              </button>
-            ))}
+        {/* ── Compact header ── */}
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Red energética</p>
+            <h1 className="text-lg font-black text-slate-950">Mapas de utilities</h1>
           </div>
-          {selectedUtilityType && (
-            <span className="text-xs text-gray-400 flex items-center gap-1">
-              <Filter size={11} /> {getUtilityLabel(selectedUtilityType)}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {/* Status filter pills */}
+            <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1">
+              {(['all', 'draft', 'published', 'archived'] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setFilterStatus(s)}
+                  className={[
+                    'rounded-lg px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer',
+                    filterStatus === s ? 'bg-brand-blue text-white' : 'text-slate-400 hover:text-slate-700',
+                  ].join(' ')}
+                >
+                  {s === 'all' ? 'Todos' : STATUS_CONFIG[s]?.label || s}
+                </button>
+              ))}
+            </div>
+            {selectedUtilityType && (
+              <span className="flex items-center gap-1 text-xs font-semibold text-slate-400">
+                <Filter size={11} /> {getUtilityLabel(selectedUtilityType)}
+              </span>
+            )}
+            <Button
+              size="sm"
+              leftIcon={<Plus size={14} />}
+              onClick={() => { setShowNewDiag(true); setNewDiagStep('utility') }}
+              disabled={!selectedSiteId}
+            >
+              Nuevo diagrama
+            </Button>
+          </div>
         </div>
 
-        {/* Diagram grid */}
-        {(() => {
-          const filteredDiagrams = (selectedUtilityType
-            ? visibleDiagrams.filter((d) => d.utility_type === selectedUtilityType || !d.utility_type)
-            : visibleDiagrams
-          ).filter((d) => filterStatus === 'all' || d.status === filterStatus)
-
-          return filteredDiagrams.length === 0 ? (
+        {/* ── Diagram grid ── */}
+        {filteredDiagrams.length === 0 ? (
           <EmptyState
             icon={<Network size={48} strokeWidth={1.5} />}
             title="Sin diagramas"
-            description={selectedUtilityType ? 'No hay diagramas para el utility seleccionado.' : 'Crea tu primer diagrama de utilities para este sitio.'}
-            action={selectedSiteId && <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setShowNewDiag(true)}>Nuevo diagrama</Button>}
+            description={
+              selectedUtilityType
+                ? 'No hay diagramas para el utility seleccionado.'
+                : selectedSiteId
+                  ? 'Crea tu primer diagrama de red de utilities para este sitio.'
+                  : 'Selecciona una planta en el panel superior para ver sus diagramas.'
+            }
+            action={selectedSiteId
+              ? <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setShowNewDiag(true)}>Nuevo diagrama</Button>
+              : undefined
+            }
           />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filteredDiagrams.map((d) => {
               const stCfg = STATUS_CONFIG[d.status] || STATUS_CONFIG.draft
-              const utilityBadge = d.utility_type ? (UTILITY_BADGE[d.utility_type] || 'bg-gray-100 text-gray-600 border-gray-200') : ''
+              const utilityBadge = d.utility_type
+                ? (UTILITY_BADGE[d.utility_type] || 'bg-slate-100 text-slate-600 border-slate-200')
+                : ''
+              const utilityColor = UTILITY_COLOR[d.utility_type || ''] || { from: '#64748b', to: '#475569' }
               return (
-                <div
+                <DiagramCard
                   key={d.id}
-                  className="bg-white border border-gray-200 rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.10)] transition-all duration-200 cursor-pointer group relative overflow-hidden"
-                  onClick={() => handleSelectDiagram(d)}
-                >
-                  {/* Top accent strip by utility */}
-                  {d.utility_type && (
-                    <div
-                      className="h-1 w-full"
-                      style={{
-                        background: {
-                          electricity: '#1B6FF8', natural_gas: '#ea580c', steam: '#7c3aed',
-                          compressed_air: '#0d9488', chilled_water: '#06b6d4',
-                          hot_water: '#f43f5e', industrial_water: '#0ea5e9',
-                          diesel: '#ca8a04', lpg: '#f59e0b', solar_generation: '#84cc16',
-                        }[d.utility_type] || '#6b7280',
-                      }}
-                    />
-                  )}
-                  <div className="p-4">
-                    <div className="flex items-start justify-between mb-3">
-                      <Network size={20} className="text-[#1B6FF8] shrink-0" />
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteDiagram(d.id) }}
-                        className="p-1 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                    <p className="text-sm font-semibold text-gray-800 leading-tight mb-3">{d.name}</p>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {d.utility_type && (
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${utilityBadge}`}>
-                          {getUtilityLabel(d.utility_type)}
-                        </span>
-                      )}
-                      <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border font-medium ${stCfg.color}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${stCfg.dot}`} />
-                        {stCfg.label}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                  name={d.name}
+                  utilityType={d.utility_type}
+                  utilityLabel={d.utility_type ? getUtilityLabel(d.utility_type) : null}
+                  utilityBadge={utilityBadge}
+                  utilityColor={utilityColor}
+                  statusCfg={stCfg}
+                  onOpen={() => handleSelectDiagram(d)}
+                  onDelete={() => handleDeleteDiagram(d.id)}
+                />
               )
             })}
           </div>
-          )
-        })()}
+        )}
 
-        {/* New diagram modal — 2 steps */}
+        {/* ── New diagram modal — 2 steps ── */}
         {showNewDiag && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="bg-white border border-gray-200 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-              {/* Step 1: Utility + name */}
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+            <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
               {newDiagStep === 'utility' && (
                 <div className="p-6">
-                  <h3 className="text-base font-bold text-gray-800 mb-4" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-                    Nuevo diagrama — Utility
-                  </h3>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Nombre</label>
+                  <div className="mb-5">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Paso 1 de 2</p>
+                    <h3 className="text-base font-black text-slate-950">Nuevo diagrama</h3>
+                  </div>
+                  <div className="space-y-4">
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] font-bold text-slate-500">Nombre del diagrama</span>
                       <input
                         value={newDiagName}
                         onChange={(e) => setNewDiagName(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1B6FF8]/20 focus:border-[#1B6FF8]/40"
-                        placeholder="Ej: Diagrama eléctrico principal"
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/15"
+                        placeholder="Ej. Red eléctrica principal, Vapor proceso A"
                         autoFocus
                       />
-                    </div>
+                    </label>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-2">Utility principal</label>
+                      <span className="mb-2 block text-[11px] font-bold text-slate-500">Utility principal</span>
                       <div className="grid grid-cols-3 gap-2">
                         {[
                           ['electricity', 'Electricidad', '#1B6FF8'],
                           ['natural_gas', 'Gas natural', '#ea580c'],
                           ['steam', 'Vapor', '#7c3aed'],
                           ['compressed_air', 'Aire comp.', '#0d9488'],
-                          ['chilled_water', 'A. helada', '#06b6d4'],
-                          ['hot_water', 'A. caliente', '#dc2626'],
-                          ['industrial_water', 'A. industrial', '#0891b2'],
+                          ['chilled_water', 'Agua helada', '#06b6d4'],
+                          ['hot_water', 'Agua caliente', '#dc2626'],
+                          ['industrial_water', 'Agua industrial', '#0891b2'],
                           ['diesel', 'Diésel', '#ca8a04'],
                           ['lpg', 'GLP', '#b45309'],
                         ].map(([v, l, color]) => (
                           <button
                             key={v}
                             onClick={() => setNewDiagUtility(v)}
-                            className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                            className={[
+                              'flex items-center gap-1.5 rounded-xl border px-2.5 py-2 text-xs font-semibold transition-all cursor-pointer',
                               newDiagUtility === v
-                                ? 'border-[#1B6FF8] bg-[#F0F6FF] text-[#1B6FF8]'
-                                : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                            }`}
+                                ? 'border-brand-blue bg-brand-blue/8 text-brand-blue'
+                                : 'border-slate-200 text-slate-600 hover:border-slate-300',
+                            ].join(' ')}
                           >
-                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
                             {l}
                           </button>
                         ))}
                       </div>
                     </div>
-                    <div className="flex justify-end gap-2 pt-2">
+                    <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
                       <Button variant="secondary" size="sm" onClick={() => setShowNewDiag(false)}>Cancelar</Button>
-                      <Button size="sm" onClick={() => setNewDiagStep('template')} disabled={!newDiagName}>
+                      <Button size="sm" disabled={!newDiagName} onClick={() => setNewDiagStep('template')}>
                         Siguiente →
                       </Button>
                     </div>
@@ -458,41 +555,45 @@ export default function MapaPage() {
                 </div>
               )}
 
-              {/* Step 2: Template chooser */}
               {newDiagStep === 'template' && (
                 <div className="p-6">
-                  <div className="flex items-center gap-2 mb-4">
-                    <button onClick={() => setNewDiagStep('utility')} className="text-gray-400 hover:text-gray-600 cursor-pointer">
+                  <div className="mb-5 flex items-center gap-3">
+                    <button
+                      onClick={() => setNewDiagStep('utility')}
+                      className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
+                    >
                       ← Atrás
                     </button>
-                    <h3 className="text-base font-bold text-gray-800" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-                      Selecciona una plantilla
-                    </h3>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Paso 2 de 2</p>
+                      <h3 className="text-base font-black text-slate-950">Selecciona una plantilla</h3>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto">
+                  <div className="max-h-64 space-y-2 overflow-y-auto">
                     {getTemplatesForUtility(newDiagUtility).map((tmpl) => (
                       <button
                         key={tmpl.id}
                         onClick={() => setSelectedTemplate(selectedTemplate?.id === tmpl.id ? null : tmpl)}
-                        className={`flex items-start gap-3 px-3 py-3 rounded-xl border text-left cursor-pointer transition-all ${
+                        className={[
+                          'flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all cursor-pointer',
                           selectedTemplate?.id === tmpl.id
-                            ? 'border-[#1B6FF8] bg-[#F0F6FF]'
-                            : 'border-gray-200 hover:border-gray-300 bg-white'
-                        }`}
+                            ? 'border-brand-blue bg-brand-blue/5'
+                            : 'border-slate-200 bg-white hover:border-slate-300',
+                        ].join(' ')}
                       >
-                        <span className="text-xl shrink-0 mt-0.5">{tmpl.icon}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-800">{tmpl.name}</p>
-                          <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">{tmpl.description}</p>
-                          <p className="text-[10px] text-gray-400 mt-1">{tmpl.nodeCount} nodo{tmpl.nodeCount !== 1 ? 's' : ''} de partida</p>
+                        <span className="mt-0.5 shrink-0 text-xl">{tmpl.icon}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-slate-900">{tmpl.name}</p>
+                          <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">{tmpl.description}</p>
+                          <p className="mt-1 text-[10px] text-slate-400">{tmpl.nodeCount} nodo{tmpl.nodeCount !== 1 ? 's' : ''} de partida</p>
                         </div>
                         {selectedTemplate?.id === tmpl.id && (
-                          <CheckCircle size={16} className="text-[#1B6FF8] shrink-0 mt-1" />
+                          <CheckCircle size={16} className="mt-0.5 shrink-0 text-brand-blue" />
                         )}
                       </button>
                     ))}
                   </div>
-                  <div className="flex justify-end gap-2 pt-4 border-t border-gray-100 mt-4">
+                  <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-4">
                     <Button variant="secondary" size="sm" onClick={() => setShowNewDiag(false)}>Cancelar</Button>
                     <Button size="sm" onClick={handleCreateDiagram}>
                       {selectedTemplate ? 'Crear con plantilla' : 'Crear en blanco'}
@@ -504,7 +605,6 @@ export default function MapaPage() {
           </div>
         )}
 
-        {/* Toast & Confirm */}
         {toast && <Toast {...toast} onClose={() => setToast(null)} />}
         <ConfirmDialog
           open={confirmState.open} title={confirmState.title} description={confirmState.description}
