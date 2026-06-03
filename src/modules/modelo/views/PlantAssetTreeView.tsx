@@ -1,11 +1,12 @@
 import {
-  useCallback, useEffect, useMemo, useRef, useState, type ReactNode,
+  useCallback, useEffect, useMemo, useState, type ReactNode,
 } from 'react'
 import {
-  BadgeCheck, Building2, CalendarClock, ChevronDown, ChevronRight,
-  ExternalLink, Factory, Gauge, Map, MoreHorizontal, Network, PackageCheck,
-  Plus, Save, Search, ShieldCheck, Wrench, X, Zap,
+  BadgeCheck, Building2, CalendarClock,
+  ExternalLink, Factory, Gauge, Map, Network, PackageCheck,
+  Plus, Save, ShieldCheck, Wrench, X, Zap,
 } from 'lucide-react'
+import { AssetTree } from '@/shared/AssetTree'
 import { Badge } from '@/shared/Badge'
 import { Button } from '@/shared/Button'
 import { Card } from '@/shared/Card'
@@ -13,7 +14,7 @@ import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { EmptyState } from '@/shared/EmptyState'
 import { FormField, inputClass, selectClass } from '@/shared/FormField'
 import { Modal } from '@/shared/Modal'
-import { getUtilityLabel } from '@/shared/OperationalContext'
+import { getUtilityLabel, utilityOptions } from '@/shared/OperationalContext'
 import { supabase } from '@/services/supabase'
 import {
   getAllowedQuantities,
@@ -37,8 +38,6 @@ import {
 } from '@/services/equipmentSpecs'
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const EXPANDED_KEY = 'energy-tree-expanded'
 
 interface Props {
   siteId: string
@@ -66,11 +65,6 @@ const READINESS_LABEL: Record<CmmsReadiness, string> = {
 const KIND_LABELS: Record<EnergyAssetCreateKind, string> = {
   area: 'Área', system: 'Sistema', equipment: 'Equipo', meter: 'Medidor',
 }
-
-const UTILITY_OPTIONS = [
-  'electricity', 'natural_gas', 'steam', 'compressed_air',
-  'chilled_water', 'hot_water', 'industrial_water', 'diesel', 'lpg',
-]
 
 const EQUIPMENT_TYPE_OPTIONS: [string, string][] = [
   ['boiler', 'Caldera'], ['pump', 'Bomba'], ['compressor', 'Compresor'],
@@ -103,37 +97,6 @@ interface LinkedMapNode {
   node_type: string; utility: string | null; properties: Record<string, unknown> | null
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function loadExpanded(): Set<string> {
-  try {
-    const stored = sessionStorage.getItem(EXPANDED_KEY)
-    if (stored) return new Set(JSON.parse(stored) as string[])
-  } catch { /* ignore */ }
-  return new Set()
-}
-
-function saveExpanded(set: Set<string>) {
-  sessionStorage.setItem(EXPANDED_KEY, JSON.stringify([...set]))
-}
-
-function matchesSearch(node: EnergyAssetTreeNode, q: string): boolean {
-  const lower = q.toLowerCase()
-  return (
-    node.name.toLowerCase().includes(lower) ||
-    (node.code ?? '').toLowerCase().includes(lower)
-  )
-}
-
-function collectAncestorIds(
-  node: EnergyAssetTreeNode,
-  targetIds: Set<string>,
-  acc: Set<string>,
-): boolean {
-  const childMatches = node.children.some((c) => collectAncestorIds(c, targetIds, acc))
-  if (targetIds.has(node.id) || childMatches) { acc.add(node.id); return true }
-  return false
-}
 
 function createDefaultForm(utilityType?: string | null): AssetFormState {
   const utility = utilityType || 'electricity'
@@ -160,13 +123,6 @@ export function PlantAssetTreeView({ siteId, utilityType }: Props) {
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  // Search + filter
-  const [search, setSearch] = useState('')
-  const [treeUtilityFilter, setTreeUtilityFilter] = useState<string>('all')
-
-  // Expand/collapse
-  const [expanded, setExpanded] = useState<Set<string>>(loadExpanded)
-
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<{ node: EnergyAssetTreeNode } | null>(null)
 
@@ -185,39 +141,8 @@ export function PlantAssetTreeView({ siteId, utilityType }: Props) {
     [selectedNodeId, tree],
   )
 
-  // Compute visible tree based on search + utility filter
-  const { filteredTree, searchMatchIds, expandForSearch } = useMemo(() => {
-    if (!tree?.root) return { filteredTree: null, searchMatchIds: new Set<string>(), expandForSearch: new Set<string>() }
-
-    const matchIds = new Set<string>()
-    if (search.trim()) {
-      tree.flatNodes.forEach((n) => { if (matchesSearch(n, search.trim())) matchIds.add(n.id) })
-    }
-
-    const expandIds = new Set<string>()
-    if (matchIds.size > 0 && tree.root) collectAncestorIds(tree.root, matchIds, expandIds)
-
-    return { filteredTree: tree.root, searchMatchIds: matchIds, expandForSearch: expandIds }
-  }, [tree, search])
-
-  function toggleExpand(id: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      saveExpanded(next)
-      return next
-    })
-  }
-
   function handleSelectNode(id: string) {
     setSelectedNodeId(id)
-    // Expand parent path
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      next.add(id)
-      saveExpanded(next)
-      return next
-    })
   }
 
   function openCreate(kind: EnergyAssetCreateKind, parent: EnergyAssetTreeNode) {
@@ -294,74 +219,15 @@ export function PlantAssetTreeView({ siteId, utilityType }: Props) {
 
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
         {/* ── Left panel — Tree ─────────────────────────────────────────── */}
-        <Card padding="none" className="overflow-hidden flex flex-col">
-          {/* Tree header */}
-          <div className="border-b border-[--color-border-strong] px-4 py-3 space-y-2 shrink-0">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'var(--font-display)' }}>
-                Árbol de planta
-              </h2>
-              <select
-                value={treeUtilityFilter}
-                onChange={(e) => setTreeUtilityFilter(e.target.value)}
-                className="text-[11px] border border-[--color-border-strong] rounded-lg px-2 py-1 bg-white text-gray-600 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand/30"
-              >
-                <option value="all">Todos</option>
-                {UTILITY_OPTIONS.map((u) => (
-                  <option key={u} value={u}>{getUtilityLabel(u)}</option>
-                ))}
-              </select>
-            </div>
-            {/* Search */}
-            <div className="relative">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar activo o código…"
-                className="w-full pl-8 pr-8 py-1.5 text-xs border border-[--color-border-strong] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand/40"
-              />
-              {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
-                >
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Tree body */}
-          <div className="flex-1 overflow-auto p-2">
-            {filteredTree && (
-              <TreeNodeRow
-                node={filteredTree}
-                depth={0}
-                expanded={expanded}
-                selectedNodeId={selectedNodeId}
-                searchQuery={search.trim()}
-                searchMatchIds={searchMatchIds}
-                expandForSearch={expandForSearch}
-                treeUtilityFilter={treeUtilityFilter}
-                onSelect={handleSelectNode}
-                onToggleExpand={toggleExpand}
-                onCreate={openCreate}
-                onRequestDelete={(node) => setDeleteTarget({ node })}
-              />
-            )}
-          </div>
-
-          {/* Tree footer summary */}
-          <div className="shrink-0 border-t border-[--color-border-strong] px-4 py-2 flex gap-3 text-[11px] text-gray-400">
-            <span>{tree.summary.areas} áreas</span>
-            <span>·</span>
-            <span>{tree.summary.systems} sistemas</span>
-            <span>·</span>
-            <span>{tree.summary.equipment} equipos</span>
-            <span>·</span>
-            <span>{tree.summary.measurementPoints} medidores</span>
-          </div>
+        <Card padding="none" className="overflow-hidden flex flex-col h-[600px]">
+          <AssetTree
+            root={tree.root}
+            loading={loading}
+            selectedId={selectedNodeId}
+            onSelect={(id) => handleSelectNode(id)}
+            onNewChild={(kind, parent) => openCreate(kind, parent)}
+            onDelete={(node) => setDeleteTarget({ node })}
+          />
         </Card>
 
         {/* ── Right panel — Detail ──────────────────────────────────────── */}
@@ -426,171 +292,6 @@ function SummaryStrip({ tree }: { tree: EnergyAssetTreeResult }) {
           </p>
         </div>
       ))}
-    </div>
-  )
-}
-
-// ── Tree node row ─────────────────────────────────────────────────────────────
-
-interface TreeNodeRowProps {
-  node: EnergyAssetTreeNode
-  depth: number
-  expanded: Set<string>
-  selectedNodeId: string | null
-  searchQuery: string
-  searchMatchIds: Set<string>
-  expandForSearch: Set<string>
-  treeUtilityFilter: string
-  onSelect: (id: string) => void
-  onToggleExpand: (id: string) => void
-  onCreate: (kind: EnergyAssetCreateKind, parent: EnergyAssetTreeNode) => void
-  onRequestDelete: (node: EnergyAssetTreeNode) => void
-}
-
-function TreeNodeRow({
-  node, depth, expanded, selectedNodeId, searchQuery, searchMatchIds,
-  expandForSearch, treeUtilityFilter, onSelect, onToggleExpand, onCreate, onRequestDelete,
-}: TreeNodeRowProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  // Filter by utility
-  if (
-    treeUtilityFilter !== 'all' &&
-    node.type === 'equipment' &&
-    node.utility && node.utility !== treeUtilityFilter
-  ) return null
-
-  // Filter by search — hide non-matching leaves (keep ancestors)
-  if (searchQuery && !searchMatchIds.has(node.id) && !expandForSearch.has(node.id)) return null
-
-  const isExpanded = searchQuery ? expandForSearch.has(node.id) : expanded.has(node.id)
-  const isSelected = node.id === selectedNodeId
-  const hasChildren = node.children.length > 0
-  const Icon = TYPE_ICONS[node.type]
-  const firstKind = getAllowedCreateKinds(node.type)[0]
-  const isMatch = searchQuery && searchMatchIds.has(node.id)
-
-  useEffect(() => {
-    if (!menuOpen) return
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [menuOpen])
-
-  return (
-    <div>
-      <div
-        className={[
-          'flex items-center gap-1.5 rounded-xl py-1.5 pr-2 group relative cursor-pointer transition-colors duration-100',
-          isSelected ? 'bg-brand/10 text-brand' : 'text-gray-700 hover:bg-gray-50',
-          isMatch ? 'ring-1 ring-brand/30' : '',
-        ].join(' ')}
-        style={{ paddingLeft: `${8 + depth * 16}px` }}
-        onClick={() => onSelect(node.id)}
-      >
-        {/* Expand chevron */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleExpand(node.id) }}
-          className="shrink-0 w-5 h-5 flex items-center justify-center rounded-md hover:bg-black/5 cursor-pointer"
-        >
-          {hasChildren
-            ? isExpanded
-              ? <ChevronDown size={12} className="text-gray-400" />
-              : <ChevronRight size={12} className="text-gray-400" />
-            : <span className="w-3" />
-          }
-        </button>
-
-        {/* Icon */}
-        <Icon size={14} className={isSelected ? 'text-brand shrink-0' : 'text-gray-400 shrink-0'} />
-
-        {/* Label */}
-        <span className="flex-1 truncate text-xs font-medium">
-          {node.code ? (
-            <>
-              <span className="font-mono text-[10px] text-gray-400 mr-1">{node.code}</span>
-              {node.name}
-            </>
-          ) : node.name}
-        </span>
-
-        {/* Badges */}
-        {node.isMeasurementAsset && (
-          <span className="shrink-0 text-[9px] font-bold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">
-            med
-          </span>
-        )}
-        {node.measurementPointCount > 0 && (
-          <span className="shrink-0 text-[9px] font-bold bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded-full">
-            {node.measurementPointCount}
-          </span>
-        )}
-
-        {/* Context menu trigger — visible on hover/selected */}
-        <div ref={menuRef} className="relative shrink-0">
-          <button
-            onClick={(e) => { e.stopPropagation(); setMenuOpen((o) => !o) }}
-            className={[
-              'w-6 h-6 flex items-center justify-center rounded-lg transition-opacity cursor-pointer',
-              'opacity-0 group-hover:opacity-100',
-              isSelected ? 'opacity-100 hover:bg-brand/10 text-brand' : 'hover:bg-gray-100 text-gray-400',
-              menuOpen ? 'opacity-100' : '',
-            ].join(' ')}
-          >
-            <MoreHorizontal size={12} />
-          </button>
-
-          {menuOpen && (
-            <div className="absolute right-0 top-7 z-50 w-44 bg-white rounded-xl border border-[--color-border-strong] shadow-floating py-1 animate-slide-down">
-              {firstKind && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onCreate(firstKind, node) }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer"
-                >
-                  <Plus size={12} /> Agregar {KIND_LABELS[firstKind]}
-                </button>
-              )}
-              {node.type !== 'plant' && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation(); setMenuOpen(false)
-                    onRequestDelete(node)
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-danger hover:bg-[--color-danger-bg] cursor-pointer"
-                >
-                  <X size={12} /> Eliminar
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Children */}
-      {isExpanded && hasChildren && (
-        <div>
-          {node.children.map((child) => (
-            <TreeNodeRow
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              expanded={expanded}
-              selectedNodeId={selectedNodeId}
-              searchQuery={searchQuery}
-              searchMatchIds={searchMatchIds}
-              expandForSearch={expandForSearch}
-              treeUtilityFilter={treeUtilityFilter}
-              onSelect={onSelect}
-              onToggleExpand={onToggleExpand}
-              onCreate={onCreate}
-              onRequestDelete={onRequestDelete}
-            />
-          ))}
-        </div>
-      )}
     </div>
   )
 }
@@ -1154,8 +855,8 @@ function AssetNodeFormModal({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <FormField label="Utility">
                 <select value={form.utility} onChange={(e) => changeUtility(e.target.value)} className={selectClass}>
-                  {UTILITY_OPTIONS.map((u) => (
-                    <option key={u} value={u}>{getUtilityLabel(u)}</option>
+                  {utilityOptions.filter((u) => u.value !== '').map((u) => (
+                    <option key={u.value} value={u.value}>{u.label}</option>
                   ))}
                 </select>
               </FormField>

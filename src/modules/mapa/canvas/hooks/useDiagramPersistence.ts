@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { supabase } from '@/services/supabase'
 import { useDiagramStore } from './useDiagramStore'
+import { saveVersion, getVersionSnapshot } from '@/services/diagramVersions'
 import type { Node, Edge } from '@xyflow/react'
 import type { DiagramNodeData, DiagramEdgeData } from '@/services/topology-engine/graphTypes'
 
@@ -175,7 +176,21 @@ export function useDiagramPersistence() {
       }, { onConflict: 'id' })
     }
 
+    // Snapshot automático de versión en cada guardado (historial + restaurar,
+    // sin necesidad de clonar).
+    await saveVersion(diagramId, nodes, edges)
+
     store.markClean()
+  }, [store])
+
+  /** Restaura una versión del historial al lienzo actual (queda como borrador
+   *  con cambios sin guardar; al guardar se crea una nueva versión). */
+  const restoreVersion = useCallback(async (versionId: string): Promise<boolean> => {
+    const snap = await getVersionSnapshot(versionId)
+    if (!snap) return false
+    store.setNodes(snap.nodes)
+    store.setEdges(snap.edges)
+    return true
   }, [store])
 
   /** Publish: freeze diagram → status = 'published' */
@@ -222,6 +237,10 @@ export function useDiagramPersistence() {
     }).eq('id', diagramId)
 
     if (error) return { success: false, message: error.message }
+
+    // Snapshot de versión marcada como publicada (queda congelada en el historial)
+    const { nodes, edges } = useDiagramStore.getState()
+    await saveVersion(diagramId, nodes, edges, { label: 'Publicada', isPublished: true })
 
     store.setStatus('published')
     return { success: true, message: 'Diagrama publicado. La versión queda congelada.' }
@@ -290,5 +309,5 @@ export function useDiagramPersistence() {
     await supabase.from('energy_diagrams').delete().eq('id', diagramId)
   }, [])
 
-  return { loadDiagrams, loadDiagram, createDiagram, saveDiagram, deleteDiagram, publishDiagram, cloneDiagram }
+  return { loadDiagrams, loadDiagram, createDiagram, saveDiagram, deleteDiagram, publishDiagram, cloneDiagram, restoreVersion }
 }

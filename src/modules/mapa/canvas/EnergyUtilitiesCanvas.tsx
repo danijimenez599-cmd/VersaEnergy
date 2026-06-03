@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
-import { ReactFlow, Background, Controls, MiniMap, MarkerType, ConnectionMode, type Connection, type Node, type Edge } from '@xyflow/react'
+import { ReactFlow, Background, Controls, MiniMap, Panel, MarkerType, ConnectionMode, useReactFlow, type Connection, type Node, type Edge } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useDiagramStore } from './hooks/useDiagramStore'
 import { useDiagramReadings } from './hooks/useDiagramReadings'
 import { nodeTypes } from './nodes'
 import { edgeTypes } from './edges/UtilityEdge'
+import { layoutNodes, orientEdges, hasOverlaps } from './autoLayout'
 import type { DiagramNodeData, DiagramEdgeData } from '@/services/topology-engine/graphTypes'
 import { supabase } from '@/services/supabase'
 import { useUIStore } from '@/store/uiStore'
 import { Button } from '@/shared/Button'
 import { Badge } from '@/shared/Badge'
 import { getUtilityLabel } from '@/shared/OperationalContext'
-import { Gauge, Link, Search, X } from 'lucide-react'
+import { Gauge, Link, Search, X, LayoutGrid, ArrowDown, ArrowRight } from 'lucide-react'
 
 type PaletteFamily = 'equipment' | 'connector' | 'control' | 'measurement' | 'iot' | 'organizational' | 'special'
 
@@ -80,11 +81,16 @@ export function EnergyUtilitiesCanvas() {
   const nodes = useDiagramStore((s) => s.nodes)
   const edges = useDiagramStore((s) => s.edges)
   const diagramUtility = useDiagramStore((s) => s.diagramUtility)
+  const diagramStatus = useDiagramStore((s) => s.diagramStatus)
   const selectElement = useDiagramStore((s) => s.selectElement)
   const addNodeStore = useDiagramStore((s) => s.addNode)
   const addEdgeStore = useDiagramStore((s) => s.addEdge)
+  const onNodesChange = useDiagramStore((s) => s.onNodesChange)
+  const onEdgesChange = useDiagramStore((s) => s.onEdgesChange)
   const { selectedSiteId } = useUIStore()
   const [pendingNode, setPendingNode] = useState<PendingNode | null>(null)
+
+  const isDraft = diagramStatus === 'draft'
 
   // ── Live readings for MeasurementNodes ───────────────────────────────────
   const fetchReadings = useDiagramReadings((s) => s.fetchReadings)
@@ -192,12 +198,17 @@ export function EnergyUtilitiesCanvas() {
       <ReactFlow
         nodes={nodes as Node[]}
         edges={edges as Edge[]}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        nodesDraggable={isDraft}
+        nodesConnectable={isDraft}
+        elementsSelectable
         fitView
         snapToGrid
         snapGrid={[16, 16]}
@@ -209,6 +220,10 @@ export function EnergyUtilitiesCanvas() {
         }}
       >
         <Background gap={16} color="#e5e7eb" />
+        <DiagramAutoArrange />
+        <Panel position="top-left">
+          <LayoutControls persist={isDraft} />
+        </Panel>
         <Controls className="!rounded-lg !border !border-border !shadow-sm" />
         <MiniMap
           position="bottom-right"
@@ -243,6 +258,100 @@ export function EnergyUtilitiesCanvas() {
       )}
     </div>
   )
+}
+
+// ── Layout controls (Dagre) ──────────────────────────────────────────────────
+// Botón "Ordenar" + toggle de orientación (vertical ↓ / horizontal →).
+// La orientación se recuerda en localStorage.
+
+const ORIENTATION_KEY = 'energy-map-orientation'
+
+function getStoredOrientation(): 'TB' | 'LR' {
+  return (localStorage.getItem(ORIENTATION_KEY) as 'TB' | 'LR') || 'TB'
+}
+
+function LayoutControls({ persist }: { persist: boolean }) {
+  const nodes = useDiagramStore((s) => s.nodes)
+  const edges = useDiagramStore((s) => s.edges)
+  const setNodes = useDiagramStore((s) => s.setNodes)
+  const setEdges = useDiagramStore((s) => s.setEdges)
+  const setNodesView = useDiagramStore((s) => s.setNodesView)
+  const setEdgesView = useDiagramStore((s) => s.setEdgesView)
+  const { fitView } = useReactFlow()
+  const [direction, setDirection] = useState<'TB' | 'LR'>(getStoredOrientation)
+
+  function applyLayout(dir: 'TB' | 'LR') {
+    if (nodes.length === 0) return
+    const laidNodes = layoutNodes(nodes as Node[], edges as Edge[], dir)
+    const orientedEdges = orientEdges(edges as Edge[], dir)
+    if (persist) {
+      setNodes(laidNodes as never)
+      setEdges(orientedEdges as never)
+    } else {
+      // Diagrama congelado/publicado: reordena la vista sin marcar cambios.
+      setNodesView(laidNodes as never)
+      setEdgesView(orientedEdges as never)
+    }
+    setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 60)
+  }
+
+  function handleOrder() { applyLayout(direction) }
+
+  function handleToggle() {
+    const next = direction === 'TB' ? 'LR' : 'TB'
+    setDirection(next)
+    localStorage.setItem(ORIENTATION_KEY, next)
+    applyLayout(next)
+  }
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        onClick={handleOrder}
+        disabled={nodes.length === 0}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-white text-xs font-semibold text-gray-600 shadow-sm hover:bg-gray-50 cursor-pointer disabled:opacity-50 transition-colors"
+        title="Ordenar el diagrama automáticamente sin traslapes"
+      >
+        <LayoutGrid size={13} />
+        Ordenar
+      </button>
+      <button
+        onClick={handleToggle}
+        disabled={nodes.length === 0}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-white text-xs font-semibold text-gray-600 shadow-sm hover:bg-gray-50 cursor-pointer disabled:opacity-50 transition-colors"
+        title={direction === 'TB' ? 'Cambiar a horizontal (→)' : 'Cambiar a vertical (↓)'}
+      >
+        {direction === 'TB' ? <ArrowDown size={13} /> : <ArrowRight size={13} />}
+        {direction === 'TB' ? 'Vertical' : 'Horizontal'}
+      </button>
+    </div>
+  )
+}
+
+// Auto-acomodo al abrir un diagrama: si los nodos guardados se traslapan
+// (p.ej. coordenadas antiguas con los nodos nuevos más grandes), reordena la
+// vista en vertical una sola vez por diagrama, sin marcar cambios.
+function DiagramAutoArrange() {
+  const diagramId = useDiagramStore((s) => s.diagramId)
+  const nodes = useDiagramStore((s) => s.nodes)
+  const edges = useDiagramStore((s) => s.edges)
+  const setNodesView = useDiagramStore((s) => s.setNodesView)
+  const setEdgesView = useDiagramStore((s) => s.setEdgesView)
+  const { fitView } = useReactFlow()
+  const arrangedRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!diagramId || nodes.length === 0) return
+    if (arrangedRef.current === diagramId) return
+    if (!hasOverlaps(nodes as Node[])) { arrangedRef.current = diagramId; return }
+    arrangedRef.current = diagramId
+    const dir = getStoredOrientation()
+    setNodesView(layoutNodes(nodes as Node[], edges as Edge[], dir) as never)
+    setEdgesView(orientEdges(edges as Edge[], dir) as never)
+    setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 80)
+  }, [diagramId, nodes, edges, setNodesView, setEdgesView, fitView])
+
+  return null
 }
 
 function MapAssetBindingModal({

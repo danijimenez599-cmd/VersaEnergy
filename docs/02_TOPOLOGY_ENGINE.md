@@ -62,7 +62,7 @@ El usuario debe poder construir modelos como estos.
 Red eléctrica
   -> Transformador T1
     -> Tablero principal
-      -> Medidor M-001
+      -> Alimentador a Producción [medidor M-001 anclado al tramo]
         -> Área Producción
           -> Equipo Compresor C-01
 ```
@@ -73,8 +73,7 @@ Red eléctrica
 Compresor C-01
   -> Secador
     -> Tanque pulmón
-      -> Header principal de aire
-        -> Medidor de flujo
+      -> Header principal de aire [medidor de flujo anclado al tramo]
           -> Línea de producción
 ```
 
@@ -82,8 +81,7 @@ Compresor C-01
 
 ```txt
 Caldera B-01
-  -> Header de vapor
-    -> Medidor de vapor
+  -> Header de vapor [medidor de vapor anclado a la línea]
       -> Intercambiador de calor
         -> Proceso térmico
           -> Retorno de condensado
@@ -94,9 +92,8 @@ Caldera B-01
 ```txt
 Chiller CH-01
   -> Bomba primaria
-    -> Header de agua helada
-      -> Medidor BTU
-        -> AHU
+    -> Header de agua helada [medidor BTU anclado al tramo]
+      -> AHU
           -> Área climatizada
 ```
 
@@ -105,7 +102,7 @@ Chiller CH-01
 ```txt
 Acometida de gas
   -> Regulador
-    -> Medidor de gas
+    -> Línea de gas [medidor de gas anclado al tramo]
       -> Caldera
         -> Producción de vapor
 ```
@@ -202,6 +199,48 @@ Ejemplos:
 - lectura importada,
 - variable externa,
 - fórmula.
+
+Convención actual de VersaEnergy:
+
+- El equipo medidor existe en el árbol de activos para mantenimiento,
+  calibración, adjuntos y compatibilidad CMMS.
+- El `MeasurementPoint` existe como entidad de datos: unidad, magnitud,
+  frecuencia, fuente, acumulador y lecturas.
+- El símbolo del medidor en el mapa es una representación visual del punto de
+  medición, no un consumidor de energía.
+- El símbolo debe anclarse a un punto físico mediante
+  `properties.measurement_binding.anchor`.
+
+Formato preferido:
+
+```json
+{
+  "measurement_binding": {
+    "measurement_point_id": "...",
+    "role": "boundary",
+    "anchor": {
+      "type": "edge",
+      "id": "edge-id",
+      "position": 0.5,
+      "side": "line",
+      "offset": { "x": 0, "y": -55 }
+    }
+  }
+}
+```
+
+Reglas:
+
+- `anchor.type = "edge"` significa que el instrumento mide un tramo físico; su
+  alcance para balance se calcula desde el extremo aguas abajo de ese tramo.
+- `anchor.type = "node"` significa que el instrumento mide un equipo, header,
+  tablero u otro nodo técnico.
+- `signal` y `logical` son anotaciones/relaciones de información: no alimentan
+  el grafo físico ni deben afectar el recorrido aguas abajo.
+- `boundary` se reserva para medidores totalizadores de entrada, revenue o
+  frontera de sistema.
+- Sensores de presión/temperatura aportan contexto operativo, pero no son
+  frontera de balance ni consumo.
 
 ### 4.4. Capa analítica
 

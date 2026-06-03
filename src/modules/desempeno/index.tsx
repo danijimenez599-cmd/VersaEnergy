@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/services/supabase'
-import { PageHeader } from '@/shared/PageHeader'
 import { Button } from '@/shared/Button'
 import { Badge } from '@/shared/Badge'
 import { Card } from '@/shared/Card'
@@ -8,11 +7,7 @@ import { EmptyState } from '@/shared/EmptyState'
 import { Modal } from '@/shared/Modal'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { useUIStore } from '@/store/uiStore'
-import {
-  OperationalContextBanner,
-  OperationalContextSummary,
-  getUtilityLabel,
-} from '@/shared/OperationalContext'
+import { getUtilityLabel } from '@/shared/OperationalContext'
 import {
   TrendingUp, Plus, Target, Save, X, TrendingDown,
   AlertTriangle, CheckCircle, ChevronRight, BarChart2,
@@ -46,7 +41,7 @@ interface PerformanceResult {
 
 type EnPIFormModal = { open: boolean; enpiId: string | null }
 
-const EMPTY_ENPI = { name: '', utility: 'electricity', unit: 'kWh/ton', scope: 'site', frequency: 'monthly', description: '' }
+const EMPTY_ENPI = { name: '', utility: 'electricity', unit: 'kWh/ton', scope: 'site', frequency: 'monthly', description: '', formula_numerator: '', formula_denominator: '' }
 const EMPTY_BASELINE = { value: '', method: 'average', period_start: '', period_end: '' }
 const EMPTY_TARGET = { name: '', target_type: 'absolute_value', target_value: '', deadline: '' }
 
@@ -92,7 +87,7 @@ export default function DesempenoPage() {
     await supabase.from('energy_enpis').insert({
       site_id: selectedSiteId, name: form.name, utility: form.utility,
       unit: form.unit, scope: form.scope, frequency: form.frequency,
-      description: form.description, formula: { numerator: '', denominator: '' },
+      description: form.description, formula: { numerator: form.formula_numerator, denominator: form.formula_denominator },
     })
     setShowEnPIForm(false)
     loadEnpis()
@@ -136,17 +131,12 @@ export default function DesempenoPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Desempeño Energético"
-        description="EnPI, líneas base y objetivos de rendimiento"
-        actions={
-          <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setShowEnPIForm(true)} disabled={!selectedSiteId}>
-            Nuevo EnPI
-          </Button>
-        }
-      />
-      <OperationalContextSummary />
-      <OperationalContextBanner />
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h2 className="text-sm font-bold text-[--color-tx-2]">Indicadores de desempeño energético (EnPI)</h2>
+        <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setShowEnPIForm(true)} disabled={!selectedSiteId}>
+          Nuevo EnPI
+        </Button>
+      </div>
 
       {loading ? (
         <div className="py-12 text-center text-sm text-gray-400">Cargando...</div>
@@ -410,6 +400,31 @@ function EnPIForm({ onSave, onCancel, utilityType }: {
             ))}
           </select>
         </div>
+        <div className="col-span-2 mt-2 pt-4 border-t border-border">
+          <p className="text-xs font-semibold text-gray-700 mb-3">Constructor de Fórmula (Opcional)</p>
+          <div className="flex items-center gap-4 bg-gray-50 p-4 rounded-lg border border-gray-100">
+            <div className="flex-1 space-y-3">
+              <div>
+                <label className="block text-[10px] text-gray-500 font-mono mb-1">Numerador (ej. Consumo Total kWh)</label>
+                <input value={form.formula_numerator} onChange={(e) => s({ formula_numerator: e.target.value })}
+                  className="w-full px-3 py-1.5 border border-border rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20 bg-white"
+                  placeholder="Tag del medidor o variable" />
+              </div>
+              <div className="border-t-2 border-dashed border-gray-300 w-full" />
+              <div>
+                <label className="block text-[10px] text-gray-500 font-mono mb-1">Denominador (ej. Toneladas Producidas)</label>
+                <input value={form.formula_denominator} onChange={(e) => s({ formula_denominator: e.target.value })}
+                  className="w-full px-3 py-1.5 border border-border rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20 bg-white"
+                  placeholder="Variable de producción o área" />
+              </div>
+            </div>
+            <div className="w-10 flex justify-center text-gray-400 font-bold text-xl">=</div>
+            <div className="w-24 shrink-0 flex items-center justify-center h-20 bg-white border border-gray-200 rounded-lg shadow-sm text-sm font-mono text-brand-blue font-semibold text-center px-2">
+              {form.unit || 'Resultado'}
+            </div>
+          </div>
+        </div>
+
         <div className="col-span-2">
           <label className="block text-xs text-gray-500 mb-1">Descripción</label>
           <textarea rows={2} value={form.description} onChange={(e) => s({ description: e.target.value })}

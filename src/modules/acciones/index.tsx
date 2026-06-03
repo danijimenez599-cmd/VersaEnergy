@@ -1,8 +1,6 @@
 import { useState } from 'react'
-import { PageHeader } from '@/shared/PageHeader'
 import { Button } from '@/shared/Button'
 import { EmptyState } from '@/shared/EmptyState'
-import { OperationalContextBanner, OperationalContextSummary } from '@/shared/OperationalContext'
 import { useUIStore } from '@/store/uiStore'
 import { Inbox, Columns, FolderKanban, Plus } from 'lucide-react'
 import { ImprovementInbox } from './views/ImprovementInbox'
@@ -47,16 +45,12 @@ export default function AccionesPage() {
 
   return (
     <div>
-      <PageHeader title="Acciones y Proyectos de Mejora"
-        description="Gestiona oportunidades de ahorro energético y proyectos de mejora"
-        actions={
-          <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => { setEditingItem(null); setShowForm(true) }} disabled={!selectedSiteId}>
-            Nueva oportunidad
-          </Button>
-        } />
-
-      <OperationalContextSummary />
-      <OperationalContextBanner />
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h2 className="text-sm font-bold text-[--color-tx-2]">Acciones y proyectos de mejora</h2>
+        <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => { setEditingItem(null); setShowForm(true) }} disabled={!selectedSiteId}>
+          Nueva oportunidad
+        </Button>
+      </div>
 
       <div className="border-b border-border mb-4">
         <nav className="flex gap-1 -mb-px">

@@ -12,6 +12,13 @@ interface UIState {
   selectedSiteId: string | null
   selectedUtilityType: string | null
   selectedPeriod: string
+  /** ID compuesto del nodo en el árbol, ej. "equipment:uuid". Para selección visual del árbol. */
+  selectedAssetId: string | null
+  /** UUID crudo del activo seleccionado — usar en consultas Supabase. */
+  selectedAssetSourceId: string | null
+  /** Tipo del activo seleccionado: plant | area | system | equipment */
+  selectedAssetType: string | null
+  activeLens: string
 
   toggleSidebar: () => void
   setActiveModule: (id: string) => void
@@ -19,6 +26,9 @@ interface UIState {
   setSelectedSiteId: (id: string | null) => void
   setSelectedUtilityType: (type: string | null) => void
   setSelectedPeriod: (period: string) => void
+  setSelectedAssetId: (id: string | null) => void
+  setSelectedAsset: (id: string | null, sourceId: string | null, type: string | null) => void
+  setActiveLens: (lens: string) => void
 }
 
 const storageKey = 'versa-energy-operational-context'
@@ -78,6 +88,10 @@ export const useUIStore = create<UIState>((set) => ({
   selectedSiteId: storedContext.selectedSiteId,
   selectedUtilityType: storedContext.selectedUtilityType,
   selectedPeriod: storedContext.selectedPeriod,
+  selectedAssetId: null,
+  selectedAssetSourceId: null,
+  selectedAssetType: null,
+  activeLens: 'resumen',
 
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setActiveModule: (id) => set({ activeModule: id }),
@@ -103,7 +117,8 @@ export const useUIStore = create<UIState>((set) => ({
         selectedUtilityType: state.selectedUtilityType,
         selectedPeriod: state.selectedPeriod,
       })
-      return { selectedSiteId: id }
+      // Reset selected asset when site changes
+      return { selectedSiteId: id, selectedAssetId: null }
     }),
   setSelectedUtilityType: (type) =>
     set((state) => {
@@ -124,4 +139,11 @@ export const useUIStore = create<UIState>((set) => ({
       })
       return { selectedPeriod }
     }),
+  setSelectedAssetId: (id) => set({ selectedAssetId: id }),
+  setSelectedAsset: (id, sourceId, type) => set({
+    selectedAssetId: id,
+    selectedAssetSourceId: sourceId,
+    selectedAssetType: type,
+  }),
+  setActiveLens: (lens) => set({ activeLens: lens }),
 }))

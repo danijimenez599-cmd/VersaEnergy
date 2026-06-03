@@ -1,6 +1,7 @@
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { DiagramNodeData } from '@/services/topology-engine/graphTypes'
+import { useDiagramStore } from '../hooks/useDiagramStore'
 import {
   Zap, Flame, Droplets, Wind, Thermometer, Gauge, Wrench, Building2,
   Power, Cable, CircleDot, Wifi, Container, Snowflake, Cog, Plug,
@@ -11,6 +12,28 @@ import {
 import { useDiagramReadings } from '../hooks/useDiagramReadings'
 import { QUALITY_COLORS, relativeTime } from '@/services/measurement-engine/lastReadings'
 import { getControlSymbol } from './controlSymbols'
+import { getEquipmentSymbol } from './equipmentSymbols'
+import { getMeterAnchorFromNodeData, getSelectedMeterScope } from '../meterScopePreview'
+
+// ── Utility color tint (símbolo + acento del nodo) ────────────────────────────
+
+const UTILITY_TINT: Record<string, { accent: string; soft: string; border: string }> = {
+  electricity:      { accent: '#1d4ed8', soft: '#eff6ff', border: '#bfdbfe' },
+  natural_gas:      { accent: '#c2410c', soft: '#fff7ed', border: '#fed7aa' },
+  steam:            { accent: '#6d28d9', soft: '#f5f3ff', border: '#ddd6fe' },
+  compressed_air:   { accent: '#0f766e', soft: '#f0fdfa', border: '#99f6e4' },
+  chilled_water:    { accent: '#0e7490', soft: '#ecfeff', border: '#a5f3fc' },
+  hot_water:        { accent: '#be123c', soft: '#fff1f2', border: '#fecdd3' },
+  industrial_water: { accent: '#0369a1', soft: '#f0f9ff', border: '#bae6fd' },
+  diesel:           { accent: '#a16207', soft: '#fefce8', border: '#fef08a' },
+  lpg:              { accent: '#b45309', soft: '#fffbeb', border: '#fde68a' },
+  solar_generation: { accent: '#4d7c0f', soft: '#f7fee7', border: '#d9f99d' },
+  battery_storage:  { accent: '#4338ca', soft: '#eef2ff', border: '#c7d2fe' },
+}
+
+function utilityTint(utility?: string) {
+  return (utility && UTILITY_TINT[utility]) || { accent: '#475569', soft: '#f8fafc', border: '#e2e8f0' }
+}
 
 type NProps = NodeProps & { data: DiagramNodeData }
 
@@ -65,54 +88,6 @@ const nodeLabels: Record<string, string> = {
 
 // ── Family helpers ────────────────────────────────────────────────────────────
 
-const familyBorderColors: Record<string, string> = {
-  equipment:     'border-blue-300 bg-white',
-  connector:     'border-teal-300 bg-white',
-  control:       'border-orange-300 bg-white',
-  measurement:   'border-purple-300 bg-white',
-  iot:           'border-cyan-300 bg-white',
-  organizational:'border-gray-300 bg-white',
-  special:       'border-red-300 bg-white',
-}
-
-const familyHeaderColors: Record<string, string> = {
-  equipment:     'bg-blue-500 text-white',
-  connector:     'bg-teal-500 text-white',
-  control:       'bg-orange-500 text-white',
-  measurement:   'bg-purple-500 text-white',
-  iot:           'bg-cyan-500 text-white',
-  organizational:'bg-gray-500 text-white',
-  special:       'bg-red-400 text-white',
-}
-
-function nodeFamily(nt: string): string {
-  const r: Record<string, string> = {
-    boiler: 'equipment', pump: 'equipment', compressor: 'equipment', chiller: 'equipment',
-    cooling_tower: 'equipment', tank: 'equipment', transformer: 'equipment',
-    panel: 'equipment', generator: 'equipment', heat_exchanger: 'equipment',
-    motor: 'equipment', consumer: 'equipment', custom_equipment: 'equipment',
-    connector_pipe: 'connector', connector_duct: 'connector', connector_cable: 'connector',
-    connector_busbar: 'connector', header: 'connector', manifold: 'connector',
-    branch: 'connector', junction: 'connector',
-    valve: 'control', damper: 'control', breaker: 'control', disconnect: 'control',
-    control_valve: 'control', regulator: 'control', check_valve: 'control',
-    flow_meter: 'measurement', energy_meter: 'measurement', power_meter: 'measurement',
-    pressure_sensor: 'measurement', temperature_sensor: 'measurement',
-    level_sensor: 'measurement', current_transformer: 'measurement',
-    gas_meter: 'measurement', water_meter: 'measurement', steam_meter: 'measurement',
-    custom_meter: 'measurement',
-    iot_device: 'iot', gateway: 'iot', plc: 'iot', rtu: 'iot',
-    edge_device: 'iot', virtual_point: 'iot', api_source: 'iot',
-    manual_reading_source: 'iot',
-    area_node: 'organizational', process_node: 'organizational',
-    production_line: 'organizational', area: 'organizational', process: 'organizational',
-    site: 'organizational', cost_center: 'organizational',
-    utility_source: 'special', loss_node: 'special', group: 'special',
-    annotation: 'special',
-  }
-  return r[nt] || 'equipment'
-}
-
 function bindingBadge(data: DiagramNodeData): { label: string; className: string } | null {
   const properties = data.properties || {}
   const assetBinding = properties.asset_binding as Record<string, unknown> | undefined
@@ -141,14 +116,16 @@ const UTILITY_LABELS: Record<string, string> = {
 
 // ── Handles helper ────────────────────────────────────────────────────────────
 
+// IDs estándar de handles — usados por orientEdges() para rutear vertical u
+// horizontal: source 's-right'/'s-bottom', target 't-left'/'t-top'.
 function Handles({ color = '#9ca3af' }: { color?: string }) {
   const style = { background: color, width: 10, height: 10, border: '2px solid white', zIndex: 10 }
   return (
     <>
-      <Handle type="target" position={Position.Left}   style={style} />
-      <Handle type="source" position={Position.Right}  style={style} />
-      <Handle type="target" position={Position.Top}    style={style} />
-      <Handle type="source" position={Position.Bottom} style={style} />
+      <Handle id="t-left"   type="target" position={Position.Left}   style={style} />
+      <Handle id="s-right"  type="source" position={Position.Right}  style={style} />
+      <Handle id="t-top"    type="target" position={Position.Top}    style={style} />
+      <Handle id="s-bottom" type="source" position={Position.Bottom} style={style} />
     </>
   )
 }
@@ -194,57 +171,78 @@ function getPrimarySpec(data: DiagramNodeData): string | null {
 // ── EquipmentNode ─────────────────────────────────────────────────────────────
 
 function EquipmentNode({ data, id }: NProps) {
-  const fam = nodeFamily(data.nodeType as string)
-  const Icon = iconMap[data.nodeType as string] || Wrench
-  const badge = bindingBadge(data)
-  const borderClass = familyBorderColors[fam]
-  const headerClass = familyHeaderColors[fam]
+  const nt = data.nodeType as string
+  const Symbol = getEquipmentSymbol(nt)
+  const FallbackIcon = iconMap[nt] || Wrench
+  const tint = utilityTint(data.utility as string)
   const primarySpec = getPrimarySpec(data)
+  const typeLabel = nodeLabels[nt] || nt
 
-  // C-02: status dot from readings
+  // Binding indicator (sutil, no badge de texto redundante)
+  const properties = data.properties || {}
+  const assetBinding = properties.asset_binding as Record<string, unknown> | undefined
+  const isLinked = assetBinding?.status === 'linked'
+
+  // Status dot from readings
   const getReading = useDiagramReadings((s) => s.getReading)
   const reading = getReading(id)
-  const statusDotColor = !reading
-    ? '#d1d5db'
-    : QUALITY_COLORS[reading.quality]
+  const statusDotColor = !reading ? '#d1d5db' : QUALITY_COLORS[reading.quality]
+
+  // Meta line: tag · spec (una sola línea, sin cortes)
+  const metaParts = [data.tag, primarySpec].filter(Boolean) as string[]
+  const allNodes = useDiagramStore((s) => s.nodes)
+  const allEdges = useDiagramStore((s) => s.edges)
+  const selectedElement = useDiagramStore((s) => s.selectedElement)
+  const selectedMeterScope = useMemo(
+    () => getSelectedMeterScope(allNodes, allEdges, selectedElement),
+    [allNodes, allEdges, selectedElement],
+  )
+  const isInSelectedMeterScope = Boolean(selectedMeterScope?.downstreamNodeIds.includes(id))
 
   return (
-    <div className={`rounded-xl border-2 shadow-[0_1px_4px_rgba(0,0,0,0.08)] min-w-[148px] ${borderClass}`}>
-      {/* Header */}
-      <div className={`flex items-center gap-1.5 px-2.5 py-1.5 ${headerClass} rounded-t-[10px] text-[10px] font-semibold`}>
-        <Icon size={12} />
-        <span className="truncate flex-1">{nodeLabels[data.nodeType as string] || data.nodeType}</span>
-        {/* C-02: status dot */}
-        <span
-          className="w-2 h-2 rounded-full shrink-0 border border-white/30"
-          style={{ backgroundColor: statusDotColor }}
-          title={reading ? `Medición: ${reading.quality}` : 'Sin medidor vinculado'}
-        />
-      </div>
-      {/* Body */}
-      <div className="px-2.5 py-2">
-        <p className="text-[12px] font-semibold text-gray-800 truncate leading-tight">{data.label}</p>
-        {data.tag && (
-          <p className="text-[10px] text-gray-400 font-mono truncate mt-0.5">{data.tag}</p>
-        )}
-        {/* C-01: primary spec */}
-        {primarySpec && (
-          <p className="text-[11px] font-semibold text-blue-600 mt-1 leading-none">{primarySpec}</p>
-        )}
-        <div className="flex flex-wrap gap-1 mt-1.5">
-          {data.utility && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
-              {UTILITY_LABELS[data.utility as string] || (data.utility as string)}
+    <div
+      className="rounded-xl border bg-white shadow-[0_1px_4px_rgba(0,0,0,0.08)] w-[176px] overflow-hidden"
+      style={{
+        borderColor: isInSelectedMeterScope ? tint.accent : tint.border,
+        boxShadow: isInSelectedMeterScope
+          ? `0 0 0 3px ${tint.accent}26, 0 8px 22px rgba(15, 23, 42, 0.12)`
+          : '0 1px 4px rgba(0,0,0,0.08)',
+      }}
+      title={`${typeLabel} · ${data.label}`}
+    >
+      <div className="flex items-stretch">
+        {/* Símbolo IEC — bloque lateral con color del utility */}
+        <div
+          className="flex items-center justify-center w-12 shrink-0"
+          style={{ background: tint.soft, color: tint.accent }}
+        >
+          {Symbol ? <Symbol size={26} /> : <FallbackIcon size={22} />}
+        </div>
+
+        {/* Contenido */}
+        <div className="flex-1 min-w-0 px-2.5 py-2">
+          <div className="flex items-center gap-1">
+            <span className="text-[9px] font-semibold uppercase tracking-wide truncate" style={{ color: tint.accent }}>
+              {typeLabel}
             </span>
-          )}
-          {badge && (
-            <span className={`text-[9px] px-1.5 py-0.5 rounded-full border ${badge.className}`}>
-              {badge.label}
-            </span>
+            {isLinked && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" title="Vinculado al árbol de activos" />
+            )}
+            <span
+              className="ml-auto w-2 h-2 rounded-full shrink-0"
+              style={{ backgroundColor: statusDotColor }}
+              title={reading ? `Medición: ${reading.quality}` : 'Sin medidor vinculado'}
+            />
+          </div>
+          <p className="text-[12px] font-bold text-gray-800 truncate leading-tight mt-0.5">{data.label}</p>
+          {metaParts.length > 0 && (
+            <p className="text-[10px] text-gray-400 font-mono truncate mt-0.5">
+              {metaParts.join('  ·  ')}
+            </p>
           )}
         </div>
       </div>
-      <Handles />
+      <Handles color={tint.accent} />
     </div>
   )
 }
@@ -267,80 +265,132 @@ function ConnectorNode({ data }: NProps) {
       >
         <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
       </div>
-      <Handle type="source" position={Position.Right} style={{ background: color, width: 10, height: 10, border: '2px solid white' }} />
-      <Handle type="target" position={Position.Left}  style={{ background: color, width: 10, height: 10, border: '2px solid white' }} />
+      <Handle id="t-left"   type="target" position={Position.Left}   style={{ background: color, width: 10, height: 10, border: '2px solid white' }} />
+      <Handle id="s-right"  type="source" position={Position.Right}  style={{ background: color, width: 10, height: 10, border: '2px solid white' }} />
+      <Handle id="t-top"    type="target" position={Position.Top}    style={{ background: color, width: 10, height: 10, border: '2px solid white' }} />
+      <Handle id="s-bottom" type="source" position={Position.Bottom} style={{ background: color, width: 10, height: 10, border: '2px solid white' }} />
     </div>
   )
 }
 
 // ── MeasurementNode (enhanced with live readings) ─────────────────────────────
 
+// MeasurementNode → globo ISA-5.1 (círculo con línea central + tag), valor debajo.
+// Es el estándar de instrumentación; ocupa poco espacio y no compite con los equipos.
+
 function MeasurementNode({ data, id }: NProps) {
   const getReading = useDiagramReadings((s) => s.getReading)
   const reading = getReading(id)
   const quality = reading?.quality ?? 'none'
-  const dotColor = QUALITY_COLORS[quality]
-  const badge = bindingBadge(data)
+  const tint = utilityTint(data.utility as string)
+  const ringColor = reading ? QUALITY_COLORS[quality] : tint.accent
+  const meterAnchor = getMeterAnchorFromNodeData(data)
+  const measurementBinding = data.properties?.measurement_binding as Record<string, unknown> | undefined
+  const meterRole = measurementBinding?.role === 'boundary' ? 'boundary' : 'submeter'
 
-  // Format value
+  // Alcance: qué nodo mide (deriva del edge de señal que lo conecta).
+  const allNodes = useDiagramStore((s) => s.nodes)
+  const allEdges = useDiagramStore((s) => s.edges)
+  const selectedElement = useDiagramStore((s) => s.selectedElement)
+  const meterScope = useMemo(
+    () => getSelectedMeterScope(allNodes, allEdges, { type: 'node', id }),
+    [allNodes, allEdges, id],
+  )
+  const isSelectedMeter = selectedElement?.type === 'node' && selectedElement.id === id
+  const measuredTag = useMemo(() => {
+    const measuredNodeId = meterScope?.measuredNodeId
+    const n = measuredNodeId ? allNodes.find((nd) => nd.id === measuredNodeId) : null
+    return n ? ((n.data.tag as string) || (n.data.label as string)) : null
+  }, [allNodes, meterScope])
+  const measuredEquipmentCount = Math.max(0, (meterScope?.downstreamNodeIds.length || 0))
+
+  const tag = (data.tag as string) || (data.label as string) || 'MP'
+  // Divide el tag en función-letras y número para el globo ISA (ej. FQI / 101)
+  const m = tag.match(/^([A-Za-z]+)[- ]?(.*)$/)
+  const tagTop = m ? m[1] : tag
+  const tagBottom = m ? m[2] : ''
+
   const displayValue = reading?.value != null
     ? `${Number(reading.value).toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${reading.unit}`
     : null
-
   const timeLabel = reading?.timestamp ? relativeTime(reading.timestamp) : null
 
   return (
-    <div className="rounded-xl border-2 border-purple-300 bg-white shadow-[0_1px_4px_rgba(0,0,0,0.08)] min-w-[120px]">
-      {/* Header */}
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-500 text-white rounded-t-[10px] text-[10px] font-semibold">
-        <Gauge size={11} />
-        <span className="truncate">{nodeLabels[data.nodeType as string] || 'Medidor'}</span>
-      </div>
+    <div className="relative flex flex-col items-center" title={`${tag}${displayValue ? ` · ${displayValue}` : ''}`}>
+      {meterAnchor?.type === 'edge' && (
+        <span
+          className="absolute left-1/2 top-[48px] h-7 border-l-2 border-dashed -translate-x-1/2"
+          style={{ borderColor: ringColor }}
+          title="Tap de medición hacia la línea anclada"
+        />
+      )}
 
-      {/* Body */}
-      <div className="px-2.5 py-2">
-        {/* Tag */}
-        <p className="text-[11px] font-mono font-semibold text-purple-700 truncate leading-tight">
-          {data.tag || data.label}
-        </p>
-
-        {/* Live value */}
-        {displayValue ? (
-          <p className="text-[13px] font-bold text-gray-800 mt-1 leading-tight truncate">
-            {displayValue}
-          </p>
-        ) : (
-          <p className="text-[11px] text-gray-400 mt-1 italic">Sin lectura</p>
-        )}
-
-        {/* Quality dot + timestamp */}
-        <div className="flex items-center gap-1 mt-1.5">
-          <span
-            className="w-2 h-2 rounded-full shrink-0"
-            style={{ backgroundColor: dotColor }}
-          />
-          <span className="text-[9px] text-gray-400 truncate">
-            {timeLabel || 'Sin datos'}
-          </span>
+      {/* Globo ISA-5.1 */}
+      <div className="relative" style={{ width: 52, height: 52 }}>
+        <div
+          className="w-[52px] h-[52px] rounded-full bg-white flex flex-col items-center justify-center shadow-[0_1px_4px_rgba(0,0,0,0.12)]"
+          style={{
+            border: `${meterRole === 'boundary' ? 3.5 : 2.5}px solid ${ringColor}`,
+            boxShadow: isSelectedMeter
+              ? `0 0 0 5px ${ringColor}24`
+              : meterRole === 'boundary'
+                ? `0 0 0 3px ${ringColor}1f`
+                : undefined,
+          }}
+        >
+          <span className="text-[10px] font-mono font-bold leading-none text-gray-700">{tagTop}</span>
+          {/* Línea central ISA */}
+          <span className="w-8 h-px my-0.5" style={{ background: ringColor }} />
+          {tagBottom && (
+            <span className="text-[10px] font-mono font-bold leading-none text-gray-700">{tagBottom}</span>
+          )}
         </div>
+      </div>
 
-        {/* Measurement type */}
-        {reading?.measurementType && (
-          <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-100">
-            {reading.measurementType}
+      {/* Valor en vivo debajo del globo */}
+      {displayValue ? (
+        <div className="mt-1 px-1.5 py-0.5 rounded-md bg-white border border-gray-200 shadow-sm">
+          <span className="text-[11px] font-bold text-gray-800 whitespace-nowrap">{displayValue}</span>
+        </div>
+      ) : (
+        <span className="mt-1 text-[9px] text-gray-400 italic">Sin lectura</span>
+      )}
+      {timeLabel && (
+        <span className="text-[8px] text-gray-400 mt-0.5">{timeLabel}</span>
+      )}
+
+      <div className="mt-1 flex items-center gap-1">
+        {meterAnchor && (
+          <span
+            className="rounded-full border bg-white px-1.5 py-0.5 text-[8px] font-semibold"
+            style={{ borderColor: ringColor + '40', color: ringColor }}
+            title={meterAnchor.type === 'edge' ? 'Anclado a una línea física' : 'Anclado a un equipo/nodo'}
+          >
+            {meterAnchor.type === 'edge' ? 'sobre linea' : 'en equipo'}
           </span>
         )}
-
-        {/* Asset binding badge */}
-        {badge && !reading && (
-          <span className={`inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded-full border ${badge.className}`}>
-            {badge.label}
+        {meterRole === 'boundary' && (
+          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[8px] font-bold text-emerald-700">
+            frontera
           </span>
         )}
       </div>
 
-      <Handle type="source" position={Position.Right} style={{ background: '#a855f7', width: 10, height: 10, border: '2px solid white' }} />
-      <Handle type="target" position={Position.Left}  style={{ background: '#a855f7', width: 10, height: 10, border: '2px solid white' }} />
+      {/* Alcance de medición: qué mide y que cubre lo de aguas abajo */}
+      {measuredTag && (
+        <div
+          className="mt-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-semibold whitespace-nowrap"
+          style={{ background: ringColor + '18', color: ringColor }}
+          title={`Mide ${measuredTag} y todo lo que está aguas abajo`}
+        >
+          mide {measuredTag} ↓ · {measuredEquipmentCount} equipos
+        </div>
+      )}
+
+      <Handle id="t-top"    type="target" position={Position.Top}    style={{ background: ringColor, width: 9, height: 9, border: '2px solid white' }} />
+      <Handle id="s-bottom" type="source" position={Position.Bottom} style={{ background: ringColor, width: 9, height: 9, border: '2px solid white' }} />
+      <Handle id="t-left"   type="target" position={Position.Left}   style={{ background: ringColor, width: 9, height: 9, border: '2px solid white' }} />
+      <Handle id="s-right"  type="source" position={Position.Right}  style={{ background: ringColor, width: 9, height: 9, border: '2px solid white' }} />
     </div>
   )
 }
@@ -426,8 +476,8 @@ function SpecialNode({ data }: NProps) {
             </p>
           )}
         </div>
-        <Handle type="source" position={Position.Right} style={{ background: srcColors.header, width: 12, height: 12, border: '2px solid white' }} />
-        <Handle type="source" position={Position.Bottom} style={{ background: srcColors.header, width: 10, height: 10, border: '2px solid white' }} />
+        <Handle id="s-right"  type="source" position={Position.Right}  style={{ background: srcColors.header, width: 12, height: 12, border: '2px solid white' }} />
+        <Handle id="s-bottom" type="source" position={Position.Bottom} style={{ background: srcColors.header, width: 10, height: 10, border: '2px solid white' }} />
       </div>
     )
   }
@@ -450,7 +500,10 @@ function SpecialNode({ data }: NProps) {
         {data.tag && <p className="text-[10px] text-gray-400 font-mono truncate mt-0.5">{data.tag}</p>}
       </div>
       {isSource ? (
-        <Handle type="source" position={Position.Right} style={{ background: '#10b981', width: 10, height: 10, border: '2px solid white' }} />
+        <>
+          <Handle id="s-right"  type="source" position={Position.Right}  style={{ background: '#10b981', width: 10, height: 10, border: '2px solid white' }} />
+          <Handle id="s-bottom" type="source" position={Position.Bottom} style={{ background: '#10b981', width: 10, height: 10, border: '2px solid white' }} />
+        </>
       ) : (
         <Handles />
       )}
@@ -473,8 +526,6 @@ const CONTROL_SYMBOL_COLORS: Record<string, string> = {
 function ControlNode({ data }: NProps) {
   const ControlSymbol = getControlSymbol(data.nodeType as string)
   const color = CONTROL_SYMBOL_COLORS[data.nodeType as string] || '#f97316'
-  const nt = data.nodeType as string
-  const isElectrical = nt === 'breaker' || nt === 'disconnect'
 
   return (
     <div className="flex flex-col items-center gap-0.5" title={data.tag || (data.label as string)}>
@@ -491,14 +542,10 @@ function ControlNode({ data }: NProps) {
           {data.tag}
         </span>
       )}
-      <Handle type="source" position={Position.Right} style={{ background: color, width: 10, height: 10, border: '2px solid white', top: '40%' }} />
-      <Handle type="target" position={Position.Left}  style={{ background: color, width: 10, height: 10, border: '2px solid white', top: '40%' }} />
-      {isElectrical && (
-        <>
-          <Handle type="source" position={Position.Bottom} style={{ background: color, width: 10, height: 10, border: '2px solid white' }} />
-          <Handle type="target" position={Position.Top}    style={{ background: color, width: 10, height: 10, border: '2px solid white' }} />
-        </>
-      )}
+      <Handle id="s-right"  type="source" position={Position.Right} style={{ background: color, width: 10, height: 10, border: '2px solid white', top: '40%' }} />
+      <Handle id="t-left"   type="target" position={Position.Left}  style={{ background: color, width: 10, height: 10, border: '2px solid white', top: '40%' }} />
+      <Handle id="s-bottom" type="source" position={Position.Bottom} style={{ background: color, width: 10, height: 10, border: '2px solid white' }} />
+      <Handle id="t-top"    type="target" position={Position.Top}    style={{ background: color, width: 10, height: 10, border: '2px solid white' }} />
     </div>
   )
 }

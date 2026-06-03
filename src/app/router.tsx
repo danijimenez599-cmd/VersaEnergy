@@ -14,6 +14,8 @@ const AccionesPage = lazy(() => import('@/modules/acciones'))
 const Iso50001Page = lazy(() => import('@/modules/iso50001'))
 const ReportesPage = lazy(() => import('@/modules/reportes'))
 const AdminPage = lazy(() => import('@/modules/admin'))
+const AssetDetail = lazy(() => import('@/shared/AssetLenses/AssetDetail').then((m) => ({ default: m.AssetDetail })))
+const AssetMaintenance = lazy(() => import('@/shared/AssetLenses/AssetMaintenance').then((m) => ({ default: m.AssetMaintenance })))
 
 function PageLoader() {
   return (
@@ -69,60 +71,30 @@ export function Router() {
             }
           >
             <Route
-              index
               element={
                 <Suspense fallback={<PageLoader />}>
-                  <InicioPage />
+                  <AssetDetail />
                 </Suspense>
               }
-            />
+            >
+              <Route index element={<Navigate to="resumen" replace />} />
+              <Route path="resumen" element={<InicioPage />} />
+              <Route path="mapa" element={<MapaPage />} />
+              <Route path="equipos" element={<ModeloPage />} />
+              <Route path="modelo" element={<Navigate to="/equipos" replace />} />
+              <Route path="mantenimiento" element={<AssetMaintenance />} />
+              <Route path="medicion" element={<MedicionPage />} />
+              <Route path="balances" element={<BalancesPage />} />
+              <Route path="desempeno" element={<DesempenoPage />} />
+              <Route path="acciones" element={<AccionesPage />} />
+              <Route path="docs" element={<div className="p-8 text-center text-gray-500">Módulo Documentos en construcción</div>} />
+            </Route>
+
+            {/* Transversal Flows */}
             <Route
-              path="mapa"
+              path="operacion"
               element={
-                <Suspense fallback={<PageLoader />}>
-                  <MapaPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="equipos"
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <ModeloPage />
-                </Suspense>
-              }
-            />
-            <Route path="modelo" element={<Navigate to="/equipos" replace />} />
-            <Route
-              path="medicion"
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <MedicionPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="balances"
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <BalancesPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="desempeno"
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <DesempenoPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="acciones"
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <AccionesPage />
-                </Suspense>
+                <div className="p-8 text-center text-gray-500">Espacio de Operación Transversal</div>
               }
             />
             <Route

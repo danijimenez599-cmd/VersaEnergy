@@ -1,5 +1,33 @@
 import type { GraphNode, GraphEdge } from './graphTypes'
 
+function physicalEdges(edges: GraphEdge[]): GraphEdge[] {
+  return edges.filter((edge) => !edge.isAnnotation)
+}
+
+function downstreamNeighbor(currentNodeId: string, edge: GraphEdge): string | null {
+  if (edge.flowDirection === 'target_to_source') {
+    return edge.target === currentNodeId ? edge.source : null
+  }
+  if (edge.flowDirection === 'bidirectional') {
+    if (edge.source === currentNodeId) return edge.target
+    if (edge.target === currentNodeId) return edge.source
+    return null
+  }
+  return edge.source === currentNodeId ? edge.target : null
+}
+
+function upstreamNeighbor(currentNodeId: string, edge: GraphEdge): string | null {
+  if (edge.flowDirection === 'target_to_source') {
+    return edge.source === currentNodeId ? edge.target : null
+  }
+  if (edge.flowDirection === 'bidirectional') {
+    if (edge.source === currentNodeId) return edge.target
+    if (edge.target === currentNodeId) return edge.source
+    return null
+  }
+  return edge.target === currentNodeId ? edge.source : null
+}
+
 export interface PathResult {
   path: string[]
   edges: GraphEdge[]
@@ -14,6 +42,7 @@ export function getConnectedComponent(
   const component = new Set<string>()
   const stack: string[] = [startNodeId]
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
+  const edgeMap = new Map(physicalEdges(edges).map((e) => [e.id, e]))
 
   while (stack.length > 0) {
     const current = stack.pop()!
@@ -24,7 +53,7 @@ export function getConnectedComponent(
     if (!node) continue
 
     for (const edgeId of [...node.incoming, ...node.outgoing]) {
-      const edge = edges.find((e) => e.id === edgeId)
+      const edge = edgeMap.get(edgeId)
       if (!edge) continue
       const neighbor = edge.source === current ? edge.target : edge.source
       if (!component.has(neighbor)) stack.push(neighbor)
@@ -42,6 +71,7 @@ export function getUpstreamNodes(
   const result: GraphNode[] = []
   const visited = new Set<string>()
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
+  const edgeMap = new Map(physicalEdges(edges).map((e) => [e.id, e]))
   const queue: string[] = [nodeId]
 
   while (queue.length > 0) {
@@ -52,20 +82,14 @@ export function getUpstreamNodes(
     if (!node) continue
 
     for (const edgeId of node.incoming) {
-      const edge = edges.find((e) => e.id === edgeId)
+      const edge = edgeMap.get(edgeId)
       if (!edge) continue
-      if (edge.flowDirection === 'target_to_source') {
-        const targetNode = nodeMap.get(edge.target)
-        if (targetNode && !visited.has(targetNode.id)) {
-          result.push(targetNode)
-          queue.push(targetNode.id)
-        }
-      } else {
-        const sourceNode = nodeMap.get(edge.source)
-        if (sourceNode && !visited.has(sourceNode.id)) {
-          result.push(sourceNode)
-          queue.push(sourceNode.id)
-        }
+      const previousId = upstreamNeighbor(current, edge)
+      if (!previousId) continue
+      const previousNode = nodeMap.get(previousId)
+      if (previousNode && !visited.has(previousNode.id)) {
+        result.push(previousNode)
+        queue.push(previousNode.id)
       }
     }
   }
@@ -81,6 +105,7 @@ export function getDownstreamNodes(
   const result: GraphNode[] = []
   const visited = new Set<string>()
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
+  const edgeMap = new Map(physicalEdges(edges).map((e) => [e.id, e]))
   const queue: string[] = [nodeId]
 
   while (queue.length > 0) {
@@ -91,9 +116,11 @@ export function getDownstreamNodes(
     if (!node) continue
 
     for (const edgeId of node.outgoing) {
-      const edge = edges.find((e) => e.id === edgeId)
+      const edge = edgeMap.get(edgeId)
       if (!edge) continue
-      const nextNode = nodeMap.get(edge.target)
+      const nextId = downstreamNeighbor(current, edge)
+      if (!nextId) continue
+      const nextNode = nodeMap.get(nextId)
       if (nextNode && !visited.has(nextNode.id)) {
         result.push(nextNode)
         queue.push(nextNode.id)
@@ -111,7 +138,7 @@ export function getPath(
   edges: GraphEdge[],
 ): PathResult | null {
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
-  const edgeMap = new Map(edges.map((e) => [e.id, e]))
+  const edgeMap = new Map(physicalEdges(edges).map((e) => [e.id, e]))
 
   interface QueueItem {
     nodeId: string
@@ -141,10 +168,11 @@ export function getPath(
     for (const edgeId of node.outgoing) {
       const edge = edgeMap.get(edgeId)
       if (!edge) continue
-      if (!visited.has(edge.target)) {
+      const nextId = downstreamNeighbor(nodeId, edge)
+      if (nextId && !visited.has(nextId)) {
         queue.push({
-          nodeId: edge.target,
-          path: [...path, edge.target],
+          nodeId: nextId,
+          path: [...path, nextId],
           pathEdges: [...pathEdges, edge],
         })
       }

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Node, Edge } from '@xyflow/react'
+import { applyNodeChanges, applyEdgeChanges, type Node, type Edge, type NodeChange, type EdgeChange } from '@xyflow/react'
 import type { DiagramNodeData, DiagramEdgeData, DiagramStatus } from '@/services/topology-engine/graphTypes'
 
 interface DiagramState {
@@ -16,6 +16,11 @@ interface DiagramState {
   setStatus: (status: DiagramStatus) => void
   setNodes: (nodes: Node<DiagramNodeData>[]) => void
   setEdges: (edges: Edge<DiagramEdgeData>[]) => void
+  /** Actualiza nodos/aristas SIN marcar "sin guardar" (reordenar vista). */
+  setNodesView: (nodes: Node<DiagramNodeData>[]) => void
+  setEdgesView: (edges: Edge<DiagramEdgeData>[]) => void
+  onNodesChange: (changes: NodeChange[]) => void
+  onEdgesChange: (changes: EdgeChange[]) => void
   addNode: (node: Node<DiagramNodeData>) => void
   updateNode: (id: string, data: Partial<DiagramNodeData>) => void
   removeNode: (id: string) => void
@@ -44,6 +49,23 @@ export const useDiagramStore = create<DiagramState>((set) => ({
 
   setNodes: (nodes) => set({ nodes, isDirty: true }),
   setEdges: (edges) => set({ edges, isDirty: true }),
+
+  setNodesView: (nodes) => set({ nodes }),
+  setEdgesView: (edges) => set({ edges }),
+
+  // Aplica cambios de React Flow (drag, resize, select…). Solo marca "sin
+  // guardar" cuando hay cambios reales de posición/estructura, no por selección.
+  onNodesChange: (changes) =>
+    set((s) => ({
+      nodes: applyNodeChanges(changes, s.nodes) as Node<DiagramNodeData>[],
+      isDirty: s.isDirty || changes.some((c) => c.type === 'position' || c.type === 'dimensions' || c.type === 'remove' || c.type === 'add'),
+    })),
+
+  onEdgesChange: (changes) =>
+    set((s) => ({
+      edges: applyEdgeChanges(changes, s.edges) as Edge<DiagramEdgeData>[],
+      isDirty: s.isDirty || changes.some((c) => c.type === 'remove' || c.type === 'add'),
+    })),
 
   addNode: (node) => set((s) => ({ nodes: [...s.nodes, node], isDirty: true })),
 

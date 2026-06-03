@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/services/supabase'
 import { PageHeader } from '@/shared/PageHeader'
 import { Card } from '@/shared/Card'
+import { Button } from '@/shared/Button'
 import { EmptyState } from '@/shared/EmptyState'
 import { OperationalContextBanner, OperationalContextSummary } from '@/shared/OperationalContext'
 import { SgenStatusBadge } from './components/SgenStatusBadge'
@@ -10,7 +11,7 @@ import { ScopeView } from './views/ScopeView'
 import { LEGAL_NOTICE, ACCEPTED_LANGUAGE } from '@/services/sgen-engine'
 import { useUIStore } from '@/store/uiStore'
 import {
-  Shield, Crosshair, Zap, Target, FolderKanban, FileSearch, Scale,
+  Shield, Crosshair, Zap, Target, FolderKanban, FileSearch, Scale, Camera
 } from 'lucide-react'
 
 const tabs = [
@@ -78,8 +79,13 @@ export default function Iso50001Page() {
 
       {selectedSiteId && loading ? <div className="py-12 text-center text-sm text-gray-400">Cargando...</div> : selectedSiteId && activeTab === 'dashboard' && (
         <div className="space-y-4">
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-            {LEGAL_NOTICE.body.slice(0, 200)}...
+          <div className="flex items-center justify-between gap-3">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 flex-1">
+              {LEGAL_NOTICE.body.slice(0, 200)}...
+            </div>
+            <Button size="sm" variant="secondary" leftIcon={<Camera size={14} />}>
+              Recolectar Evidencia (Snapshot)
+            </Button>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

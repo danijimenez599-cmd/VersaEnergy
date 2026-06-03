@@ -106,13 +106,28 @@ Base existente:
 - validacion visible y bloqueo de publicacion con errores;
 - nodos de equipo, area y medicion vinculados al arbol de activos;
 - nodos de medidor vinculados a equipo medidor + MeasurementPoint;
+- aristas fisicas (`cable`, `busbar`, `pipe`, `duct`) separadas de
+  anotaciones (`signal`, `logical`) para no contaminar la topologia;
+- binding profesional de medidor: el nodo visual usa
+  `properties.measurement_binding.measurement_point_id`, se conecta con una
+  arista `signal` como referencia informativa, y ahora puede declarar
+  `properties.measurement_binding.anchor` para quedar anclado a una linea
+  fisica o nodo tecnico;
+- el alcance de balance se resuelve desde el anchor: si es linea, desde el
+  extremo aguas abajo del tramo; si es nodo, desde ese nodo;
+- rol editable de medidor de frontera en el inspector mediante
+  `properties.measurement_binding.role = "boundary"`;
+- seleccion de medidores con resaltado visual del alcance aguas abajo;
+- lineas fisicas muestran taps de medidores anclados para que el diagrama se lea
+  mas cerca de un P&ID/unifilar profesional;
 - seed con cuatro diagramas reales: electrico, vapor, aire comprimido y agua
   helada.
 
 Brechas:
 
 - faltan plantillas por utility;
-- faltan overlays de consumo, cobertura, perdidas y datos faltantes;
+- faltan overlays persistentes de consumo, cobertura, perdidas y datos
+  faltantes;
 - la leyenda todavia puede evolucionar hacia una herramienta operacional;
 - falta crear equipo medidor + MeasurementPoint directamente desde un drop de
   mapa cuando el activo todavia no existe.
@@ -145,15 +160,29 @@ Base existente:
 - `balance-engine`;
 - estructura para total input, medido, calculado, estimado, perdidas,
   fugas, retornos y no explicado.
+- wizard que ejecuta por utility usando diagramas publicados;
+- compilacion de `energy_diagram_nodes` + `energy_diagram_edges` +
+  `measurement_points` hacia el grafo semantico antes de calcular;
+- lectura de medidores de frontera para `totalInput`;
+- soporte de acumuladores por delta entre lectura anterior y lectura del
+  periodo;
+- conversion explicita de unidades compatibles antes de sumar;
+- proteccion contra doble conteo en medidores anidados: el medidor hijo se
+  muestra como detalle, pero no se suma dos veces contra la entrada total;
+- resultado guardado con `diagram_version_id` cuando existe una version
+  publicada;
+- no explicado protegido contra valores negativos.
 
 Brechas:
 
-- la pantalla actual ejecuta un balance simplificado;
-- no selecciona version publicada del diagrama;
-- no separa fuente, distribucion, consumidores y retornos con suficiente rigor;
+- falta vista de supuestos y trazabilidad de cada medicion usada;
+- falta mejorar la asignacion por nodo cuando un submedidor cubre multiples
+  consumidores aguas abajo;
+- falta separar fuente, distribucion, consumidores y retornos con mas detalle
+  operativo;
 - no genera oportunidades desde desviaciones;
 - no muestra overlays sobre el mapa;
-- no tiene wizard de ejecucion con supuestos visibles.
+- el wizard todavia no muestra supuestos visibles antes de confirmar.
 
 ### 6. Desempeno energetico
 

@@ -13,6 +13,9 @@ export type {
   DiagramNodeType,
   DiagramEdgeType,
   FlowDirection,
+  MeterAnchorType,
+  MeterAnchorSide,
+  MeterAnchorBinding,
   DiagramNodeData,
   DiagramEdgeData,
   MeasurementType,
@@ -44,7 +47,9 @@ export { getConversion, getAllConversions, convertUnits, areUnitsCompatible } fr
 export { validationRules, validate, validateDiagram, validateNode, validateEdge, getIssuesBySeverity, hasErrors } from './validators'
 export { compileGraph, compileFromRows } from './compiler'
 export { getConnectedComponent, getUpstreamNodes, getDownstreamNodes, getPath, getMeasuredNodes, getUnmeasuredNodes, getNodesByUtility, getSourceNodes, getLeafNodes } from './graphQueries'
+export { getMeterScope, getMeterScopes, getMeterScopesByMeasurementPoint, getBoundaryMeterScopes, isMeasurementGraphNode } from './meterBinding'
 export { createSnapshot, snapshotToJson, parseSnapshot, compareSnapshots } from './serialization'
 export { canEdit, canPublish, canArchive, canClone, createVersionNumber, publishVersion, archiveVersion, createCloneVersion, getActiveVersion, getLatestDraft, validateVersionTransition } from './topologyVersioning'
 export type { VersioningResult } from './topologyVersioning'
 export type { PathResult } from './graphQueries'
+export type { MeterRole, MeterScope } from './meterBinding'

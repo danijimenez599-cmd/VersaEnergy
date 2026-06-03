@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/services/supabase'
-import { PageHeader } from '@/shared/PageHeader'
 import { Button } from '@/shared/Button'
 import { Badge } from '@/shared/Badge'
 import { Card } from '@/shared/Card'
 import { EmptyState } from '@/shared/EmptyState'
 import { useUIStore } from '@/store/uiStore'
-import { OperationalContextBanner, OperationalContextSummary, getEnergyPeriodRange } from '@/shared/OperationalContext'
+import { getEnergyPeriodRange } from '@/shared/OperationalContext'
 import { validateReadingsBatch, detectGaps } from '@/services/measurement-engine/quality'
 import {
   Plus, Upload, Table, ShieldCheck, Gauge, CheckCircle,
@@ -56,18 +55,29 @@ export default function MedicionPage() {
   const [validatedReadings, setValidatedReadings] = useState<ValidatedReading[]>([])
   const [batches, setBatches] = useState<ImportBatch[]>([])
   const [loading, setLoading] = useState(false)
-  const { selectedSiteId, selectedUtilityType, selectedPeriod } = useUIStore()
+  const { selectedSiteId, selectedUtilityType, selectedPeriod, selectedAssetSourceId, selectedAssetType } = useUIStore()
 
   useEffect(() => {
     if (!selectedSiteId) { setPoints([]); setSelectedPoint(''); return }
     let q = supabase.from('measurement_points').select('*').eq('site_id', selectedSiteId).order('tag')
     if (selectedUtilityType) q = q.eq('utility', selectedUtilityType)
+    // Scope to selected asset when an equipment or system is selected in the tree
+    if (selectedAssetSourceId && selectedAssetType === 'equipment') {
+      q = q.or(`target_id.eq.${selectedAssetSourceId},meter_equipment_id.eq.${selectedAssetSourceId}`)
+    } else if (selectedAssetSourceId && selectedAssetType === 'system') {
+      q = q.eq('target_id', selectedAssetSourceId)
+    }
     q.then(({ data }) => setPoints(data || []))
-  }, [selectedSiteId, selectedUtilityType])
+  }, [selectedSiteId, selectedUtilityType, selectedAssetSourceId, selectedAssetType])
 
+  // Auto-select first point when list changes from tree selection
   useEffect(() => {
-    if (selectedPoint && !points.some((p) => p.id === selectedPoint)) setSelectedPoint('')
-  }, [points, selectedPoint])
+    if (selectedAssetSourceId && points.length > 0 && !points.some((p) => p.id === selectedPoint)) {
+      setSelectedPoint(points[0].id)
+    } else if (!points.some((p) => p.id === selectedPoint)) {
+      setSelectedPoint('')
+    }
+  }, [points, selectedPoint, selectedAssetSourceId])
 
   const loadReadings = useCallback(async () => {
     if (!selectedPoint) return
@@ -104,10 +114,6 @@ export default function MedicionPage() {
 
   return (
     <div>
-      <PageHeader title="Medición" description="Captura, importación, calidad y lecturas validadas" />
-      <OperationalContextSummary />
-      <OperationalContextBanner />
-
       {/* Point selector */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <label className="text-sm text-gray-600">Punto de medición:</label>

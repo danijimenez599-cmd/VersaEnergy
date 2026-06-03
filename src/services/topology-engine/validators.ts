@@ -27,6 +27,24 @@ function linkedObject(value: unknown): Record<string, unknown> | null {
   return record.status === 'linked' ? record : null
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function measurementAnchor(value: unknown): { type: 'edge' | 'node'; id: string } | null {
+  const binding = asRecord(value)
+  if (!binding) return null
+  const nested = asRecord(binding.anchor)
+  if (nested) {
+    const type = nested.type === 'edge' || nested.type === 'node' ? nested.type : null
+    const id = typeof nested.id === 'string' ? nested.id : null
+    return type && id ? { type, id } : null
+  }
+  const type = binding.anchor_type === 'edge' || binding.anchor_type === 'node' ? binding.anchor_type : null
+  const id = typeof binding.anchor_id === 'string' ? binding.anchor_id : null
+  return type && id ? { type, id } : null
+}
+
 export const validationRules: ValidationRule[] = [
   // R01: Tag único
   {
@@ -396,6 +414,92 @@ export const validationRules: ValidationRule[] = [
         }
       }
       return issues
+    },
+  },
+
+  // R14: Los instrumentos deben declarar su punto fisico medido.
+  {
+    id: 'R14',
+    severity: 'error',
+    appliesTo: 'node',
+    check(ctx: ValidationContext): ValidationIssue[] {
+      const issues: ValidationIssue[] = []
+      const nodeIds = new Set(ctx.nodes.map((node) => node.id))
+      const edgeMap = new Map(ctx.edges.map((edge) => [edge.id, edge]))
+      for (const node of ctx.nodes) {
+        if (!MEASUREMENT_NODE_TYPES.has(node.type)) continue
+        const binding = linkedObject(node.properties?.measurement_binding)
+        if (!binding) continue
+        const anchor = measurementAnchor(binding)
+        if (!anchor) {
+          issues.push({
+            id: issueId(),
+            ruleId: 'R14',
+            severity: 'error',
+            message: `Medidor ${node.tag} debe anclarse a una linea fisica o a un equipo medido.`,
+            targetId: node.id,
+            targetType: 'node',
+          })
+          continue
+        }
+        if (anchor.type === 'node' && !nodeIds.has(anchor.id)) {
+          issues.push({
+            id: issueId(),
+            ruleId: 'R14',
+            severity: 'error',
+            message: `Medidor ${node.tag} apunta a un nodo medido inexistente.`,
+            targetId: node.id,
+            targetType: 'node',
+          })
+        }
+        if (anchor.type === 'edge') {
+          const edge = edgeMap.get(anchor.id)
+          if (!edge || edge.isAnnotation) {
+            issues.push({
+              id: issueId(),
+              ruleId: 'R14',
+              severity: 'error',
+              message: `Medidor ${node.tag} debe anclarse a una linea fisica, no a una senal/anotacion.`,
+              targetId: node.id,
+              targetType: 'node',
+            })
+          } else if (edge.utility && node.utility && edge.utility !== node.utility) {
+            issues.push({
+              id: issueId(),
+              ruleId: 'R14',
+              severity: 'error',
+              message: `Medidor ${node.tag} (${node.utility}) esta anclado a una linea ${edge.utility}.`,
+              targetId: node.id,
+              targetType: 'node',
+            })
+          }
+        }
+      }
+      return issues
+    },
+  },
+
+  // R15: Solo totalizadores/medidores de consumo deben ser frontera de balance.
+  {
+    id: 'R15',
+    severity: 'error',
+    appliesTo: 'node',
+    check(ctx: ValidationContext): ValidationIssue[] {
+      const balanceMeterTypes = new Set(['flow_meter', 'energy_meter', 'power_meter', 'gas_meter', 'water_meter', 'steam_meter', 'custom_meter'])
+      return ctx.nodes
+        .filter((node) => MEASUREMENT_NODE_TYPES.has(node.type))
+        .filter((node) => {
+          const binding = asRecord(node.properties?.measurement_binding)
+          return binding?.role === 'boundary' && !balanceMeterTypes.has(node.type)
+        })
+        .map((node) => ({
+          id: issueId(),
+          ruleId: 'R15',
+          severity: 'error' as const,
+          message: `Sensor ${node.tag} no debe marcarse como frontera; usa frontera solo para medidores totalizadores de consumo.`,
+          targetId: node.id,
+          targetType: 'node',
+        }))
     },
   },
 ]

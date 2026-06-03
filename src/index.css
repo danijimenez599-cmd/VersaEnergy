@@ -67,6 +67,52 @@
   --shadow-floating:    0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08);
   --shadow-modal:       0 20px 25px -5px rgba(0,0,0,0.10), 0 8px 10px -6px rgba(0,0,0,0.06);
 
+  /* ── Accent — idéntico a VersaMaint ────────────────────────────── */
+  --color-accent:              #00C8B8;
+  --color-ocre:                var(--color-accent);
+  --color-neutral:             #6b7280;
+
+  /* ── Asset tree layout ──────────────────────────────────────────── */
+  --asset-row-h:               34px;
+  --asset-indent:              16px;
+
+  /* ── Work order type palette — idéntico a VersaMaint ───────────── */
+  --color-work-preventive:         #2563EB;
+  --color-work-preventive-bg:      #EFF6FF;
+  --color-work-preventive-border:  #BFDBFE;
+  --color-work-corrective:         #D97706;
+  --color-work-corrective-bg:      #FFFBEB;
+  --color-work-corrective-border:  #FDE68A;
+  --color-work-projection:         #7C3AED;
+  --color-work-projection-bg:      #F5F3FF;
+  --color-work-projection-border:  #DDD6FE;
+  --color-work-completed:          #15803D;
+  --color-work-completed-bg:       #F0FDF4;
+  --color-work-completed-border:   #BBF7D0;
+  --color-work-overdue:            #DC2626;
+  --color-work-overdue-bg:         #FEF2F2;
+  --color-work-overdue-border:     #FECACA;
+
+  /* ── Work order status palette — idéntico a VersaMaint ─────────── */
+  --color-status-open:             #2563EB;
+  --color-status-open-bg:          #EFF6FF;
+  --color-status-open-border:      #BFDBFE;
+  --color-status-assigned:         #4F46E5;
+  --color-status-assigned-bg:      #EEF2FF;
+  --color-status-assigned-border:  #C7D2FE;
+  --color-status-progress:         #D97706;
+  --color-status-progress-bg:      #FFFBEB;
+  --color-status-progress-border:  #FDE68A;
+  --color-status-hold:             #64748B;
+  --color-status-hold-bg:          #F1F5F9;
+  --color-status-hold-border:      #CBD5E1;
+  --color-status-completed:        #15803D;
+  --color-status-completed-bg:     #F0FDF4;
+  --color-status-completed-border: #BBF7D0;
+  --color-status-cancelled:        #64748B;
+  --color-status-cancelled-bg:     #F1F5F9;
+  --color-status-cancelled-border: #CBD5E1;
+
   /* ── Legacy aliases (retrocompatibilidad con módulos existentes) ── */
   --color-brand-blue:         #1B6FF8;
   --color-brand-blue-light:   #3b82f6;
@@ -105,6 +151,11 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+/* ── Headings — Space Grotesk global ───────────────────────────────── */
+h1, h2, h3 {
+  font-family: var(--font-display);
 }
 
 /* ── Scrollbar — idéntico a VersaMaint ─────────────────────────────── */

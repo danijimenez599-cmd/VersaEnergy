@@ -12,6 +12,7 @@ import type { DiagramNodeData, DiagramEdgeData } from '@/services/topology-engin
 import { DiagramSummaryPanel } from './DiagramSummaryPanel'
 import { QUALITY_COLORS, relativeTime } from '@/services/measurement-engine/lastReadings'
 import { getUtilityLabel } from '@/shared/OperationalContext'
+import { getMeterAnchorFromNodeData } from '../canvas/meterScopePreview'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -221,7 +222,7 @@ function NodeInspector({ node, onUpdate, onRemove }: {
           className="p-4 space-y-3"
         >
           {tab === 'props' && <PropsTab node={node} onUpdate={onUpdate} />}
-          {tab === 'measurement' && <MeasurementTab node={node} />}
+          {tab === 'measurement' && <MeasurementTab node={node} onUpdate={onUpdate} />}
           {tab === 'specs' && <SpecsTab node={node} />}
           {tab === 'actions' && <ActionsTab node={node} onRemove={onRemove} />}
         </motion.div>
@@ -269,22 +270,79 @@ function PropsTab({ node, onUpdate }: { node: Node<DiagramNodeData>; onUpdate: (
 
 // ── Measurement Tab ───────────────────────────────────────────────────────────
 
-function MeasurementTab({ node }: { node: Node<DiagramNodeData> }) {
+function MeasurementTab({
+  node,
+  onUpdate,
+}: {
+  node: Node<DiagramNodeData>
+  onUpdate: (id: string, data: Partial<DiagramNodeData>) => void
+}) {
   const { selectedSiteId } = useUIStore()
   const [linkedMPs, setLinkedMPs] = useState<LinkedMP[]>([])
   const [availableMPs, setAvailableMPs] = useState<LinkedMP[]>([])
   const [showLinkModal, setShowLinkModal] = useState(false)
   const [loading, setLoading] = useState(false)
+  const diagramNodes = useDiagramStore((s) => s.nodes)
+  const diagramEdges = useDiagramStore((s) => s.edges)
+  const properties = node.data.properties || {}
+  const measurementBinding = properties.measurement_binding as Record<string, unknown> | undefined
+  const boundMeasurementPointId = typeof measurementBinding?.measurement_point_id === 'string'
+    ? measurementBinding.measurement_point_id
+    : null
+  const meterRole = measurementBinding?.role === 'boundary' ? 'boundary' : 'submeter'
+  const meterAnchor = getMeterAnchorFromNodeData(node.data)
+  const physicalEdges = diagramEdges.filter((edge) => edge.data?.edgeType !== 'signal' && edge.data?.edgeType !== 'logical')
+  const anchorableNodes = diagramNodes.filter((item) => item.id !== node.id)
+
+  function updateMeasurementBinding(next: Record<string, unknown>) {
+    onUpdate(node.id, {
+      properties: {
+        ...properties,
+        measurement_binding: {
+          ...(measurementBinding || {}),
+          ...next,
+        },
+      },
+    })
+  }
+
+  function setMeterRole(role: 'boundary' | 'submeter') {
+    updateMeasurementBinding({ role })
+  }
+
+  function setMeterAnchor(type: 'edge' | 'node', id: string, side?: string) {
+    if (!id) return
+    updateMeasurementBinding({
+      anchor: {
+        type,
+        id,
+        position: meterAnchor?.position ?? 0.5,
+        side: side || meterAnchor?.side || (type === 'edge' ? 'line' : 'load'),
+        offset: meterAnchor?.offset || { x: 0, y: -48 },
+      },
+    })
+  }
 
   useEffect(() => {
     async function load() {
       setLoading(true)
-      // Load MPs linked to this node
-      const { data: mps } = await supabase
+      const { data: nodeMps } = await supabase
         .from('measurement_points')
         .select('id, tag, name, utility, measurement_type, unit, quantity, meter_equipment_id, last_calibration_date, calibration_due_date')
         .eq('target_type', 'node')
         .eq('target_id', node.id)
+
+      let bindingMps: LinkedMP[] = []
+      if (boundMeasurementPointId) {
+        const { data } = await supabase
+          .from('measurement_points')
+          .select('id, tag, name, utility, measurement_type, unit, quantity, meter_equipment_id, last_calibration_date, calibration_due_date')
+          .eq('id', boundMeasurementPointId)
+        bindingMps = (data || []) as LinkedMP[]
+      }
+
+      const mps = [...(nodeMps || []), ...bindingMps]
+        .filter((mp, index, list) => list.findIndex((item) => item.id === mp.id) === index)
 
       if (!mps || mps.length === 0) { setLinkedMPs([]); setLoading(false); return }
 
@@ -315,7 +373,7 @@ function MeasurementTab({ node }: { node: Node<DiagramNodeData> }) {
       setLoading(false)
     }
     load()
-  }, [node.id])
+  }, [boundMeasurementPointId, node.id])
 
   async function openLinkModal() {
     if (!selectedSiteId) return
@@ -361,6 +419,107 @@ function MeasurementTab({ node }: { node: Node<DiagramNodeData> }) {
 
   return (
     <>
+      {boundMeasurementPointId && (
+        <>
+          <div className="rounded-xl border border-purple-100 bg-purple-50 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-purple-700">Rol en balance</p>
+                <p className="mt-1 text-[11px] text-purple-700">
+                  Frontera alimenta la entrada total; submedidor explica consumo aguas abajo.
+                </p>
+              </div>
+              <Gauge size={16} className="mt-0.5 shrink-0 text-purple-500" />
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-1 rounded-lg bg-white p-1 border border-purple-100">
+              <button
+                onClick={() => setMeterRole('submeter')}
+                className={`rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors ${
+                  meterRole === 'submeter'
+                    ? 'bg-gray-900 text-white'
+                    : 'text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                Submedidor
+              </button>
+              <button
+                onClick={() => setMeterRole('boundary')}
+                className={`rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors ${
+                  meterRole === 'boundary'
+                    ? 'bg-purple-600 text-white'
+                    : 'text-gray-500 hover:bg-purple-50'
+                }`}
+              >
+                Frontera
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-700">Punto medido</p>
+            <p className="mt-1 text-[11px] text-blue-700">
+              Ancla el instrumento al tramo o equipo que representa fisicamente.
+            </p>
+            <div className="mt-3 space-y-2">
+              <InspectorSelect
+                label="Anclar a"
+                value={meterAnchor?.type || 'edge'}
+                onChange={(value) => {
+                  if (value === 'node') {
+                    const fallbackNode = anchorableNodes[0]
+                    setMeterAnchor('node', fallbackNode?.id || '')
+                  } else {
+                    const fallbackEdge = physicalEdges[0]
+                    setMeterAnchor('edge', fallbackEdge?.id || '')
+                  }
+                }}
+                options={['edge', 'node']}
+                renderOption={(value) => value === 'edge' ? 'Linea / tramo' : 'Equipo / nodo'}
+              />
+              {meterAnchor?.type !== 'node' ? (
+                <InspectorSelect
+                  label="Linea medida"
+                  value={meterAnchor?.type === 'edge' ? meterAnchor.id : ''}
+                  onChange={(value) => setMeterAnchor('edge', value)}
+                  options={physicalEdges.map((edge) => edge.id)}
+                  renderOption={(value) => {
+                    const edge = physicalEdges.find((item) => item.id === value)
+                    return edge ? `${edge.data?.tag || edge.data?.label || 'Linea'} · ${edge.data?.edgeType}` : value
+                  }}
+                />
+              ) : (
+                <InspectorSelect
+                  label="Equipo/nodo medido"
+                  value={meterAnchor.id}
+                  onChange={(value) => setMeterAnchor('node', value)}
+                  options={anchorableNodes.map((item) => item.id)}
+                  renderOption={(value) => {
+                    const target = anchorableNodes.find((item) => item.id === value)
+                    return target ? `${target.data.tag || target.data.label} · ${target.data.nodeType}` : value
+                  }}
+                />
+              )}
+              <InspectorSelect
+                label="Lado"
+                value={meterAnchor?.side || 'line'}
+                onChange={(value) => {
+                  const type = meterAnchor?.type || 'edge'
+                  const id = meterAnchor?.id || (type === 'edge' ? physicalEdges[0]?.id : anchorableNodes[0]?.id)
+                  setMeterAnchor(type, id || '', value)
+                }}
+                options={['line', 'source', 'load', 'return']}
+                renderOption={(value) => ({
+                  line: 'Sobre linea',
+                  source: 'Lado fuente',
+                  load: 'Lado carga',
+                  return: 'Retorno',
+                }[value] || value)}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
           Puntos de medición ({linkedMPs.length})

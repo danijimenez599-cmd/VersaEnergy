@@ -10,6 +10,8 @@ export { Toast } from './Toast'
 export type { ToastPayload, ToastType } from './Toast'
 export { FormField, inputClass, selectClass } from './FormField'
 export { AlertBanner } from './AlertBanner'
+export { AssetTree } from './AssetTree'
+export type { AssetTreeProps } from './AssetTree'
 export {
   OperationalContextBanner,
   OperationalContextSummary,

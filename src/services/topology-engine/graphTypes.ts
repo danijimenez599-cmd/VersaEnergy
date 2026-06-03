@@ -132,11 +132,26 @@ export type DiagramEdgeType =
   | 'signal'
   | 'logical'
 
+export function isPhysicalEdge(edgeType: string | null | undefined): edgeType is Extract<DiagramEdgeType, 'pipe' | 'cable' | 'duct' | 'busbar'> {
+  return edgeType === 'pipe' || edgeType === 'cable' || edgeType === 'duct' || edgeType === 'busbar'
+}
+
 export type FlowDirection =
   | 'source_to_target'
   | 'target_to_source'
   | 'bidirectional'
   | 'unknown'
+
+export type MeterAnchorType = 'node' | 'edge'
+export type MeterAnchorSide = 'source' | 'load' | 'line' | 'return'
+
+export interface MeterAnchorBinding {
+  type: MeterAnchorType
+  id: string
+  position?: number
+  side?: MeterAnchorSide
+  offset?: { x: number; y: number }
+}
 
 export interface DiagramNodeData {
   [key: string]: unknown
@@ -293,6 +308,7 @@ export interface GraphEdge {
   type: DiagramEdgeType
   utility: string
   flowDirection: FlowDirection
+  isAnnotation: boolean
   label?: string
   lossFactor?: number
   leakFactor?: number

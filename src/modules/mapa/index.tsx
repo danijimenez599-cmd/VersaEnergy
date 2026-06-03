@@ -3,6 +3,7 @@ import { EnergyUtilitiesCanvas } from './canvas/EnergyUtilitiesCanvas'
 import { NodePalette } from './palette/NodePalette'
 import { InspectorPanel } from './inspector/InspectorPanel'
 import { ValidationPanel } from './inspector/ValidationPanel'
+import { VersionHistoryPanel } from './inspector/VersionHistoryPanel'
 import { MapLegend } from './canvas/MapLegend'
 import { OverlayBar, type OverlayMode } from './canvas/OverlayBar'
 import { useDiagramPersistence } from './canvas/hooks/useDiagramPersistence'
@@ -15,16 +16,12 @@ import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { Toast } from '@/shared/Toast'
 import type { ToastPayload } from '@/shared/Toast'
 import { useUIStore } from '@/store/uiStore'
-import {
-  OperationalContextBanner,
-  OperationalContextSummary,
-  getUtilityLabel,
-} from '@/shared/OperationalContext'
+import { getUtilityLabel } from '@/shared/OperationalContext'
 import { getTemplatesForUtility, instantiateTemplate } from './DiagramTemplates'
 import type { DiagramTemplate } from './DiagramTemplates'
 import {
   Save, Plus, Trash2, Network, ShieldCheck, Globe,
-  Copy, CheckCircle, ChevronLeft, MoreHorizontal, Filter,
+  Copy, CheckCircle, ChevronLeft, MoreHorizontal, Filter, History,
 } from 'lucide-react'
 import type { ValidationIssue } from '@/services/topology-engine/graphTypes'
 
@@ -86,6 +83,8 @@ export default function MapaPage() {
   const [publishing, setPublishing] = useState(false)
   const [cloning, setCloning] = useState(false)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const [activeOverlay, setActiveOverlay] = useState<OverlayMode>('none')
   const [toast, setToast] = useState<ToastPayload | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>('all')
@@ -100,9 +99,33 @@ export default function MapaPage() {
     setConfirmState((s) => ({ ...s, open: false }))
   }
 
+  async function handleSave() {
+    await saveDiagram()
+    setHistoryRefreshKey((k) => k + 1)
+    setToast({ type: 'success', title: 'Guardado', message: 'Se registró una nueva versión en el historial.' })
+    setTimeout(() => setToast(null), 3500)
+  }
+
+  async function handleRestore(versionId: string, versionNumber: number) {
+    openConfirm({
+      title: `Restaurar versión v${versionNumber}`,
+      description: 'Se cargará ese estado al lienzo. Podrás revisarlo y, al guardar, quedará registrado como una nueva versión.',
+      confirmLabel: 'Restaurar',
+      danger: false,
+      onConfirm: async () => {
+        closeConfirm()
+        const ok = await restoreVersion(versionId)
+        setToast(ok
+          ? { type: 'success', title: `Versión v${versionNumber} restaurada`, message: 'Revisa y guarda para confirmar.' }
+          : { type: 'error', title: 'No se pudo restaurar la versión' })
+        setTimeout(() => setToast(null), 3500)
+      },
+    })
+  }
+
   const { selectedSiteId, selectedUtilityType } = useUIStore()
   const { diagramId, diagramName, isDirty, diagramStatus, nodes, edges } = useDiagramStore()
-  const { loadDiagrams, loadDiagram, createDiagram, saveDiagram, deleteDiagram, publishDiagram, cloneDiagram } = useDiagramPersistence()
+  const { loadDiagrams, loadDiagram, createDiagram, saveDiagram, deleteDiagram, publishDiagram, cloneDiagram, restoreVersion } = useDiagramPersistence()
 
   useEffect(() => {
     async function load() {
@@ -278,9 +301,6 @@ export default function MapaPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">Canvas para diagramas de redes de utilities</p>
         </div>
-
-        <OperationalContextSummary />
-        <OperationalContextBanner />
 
         {/* Filters + header */}
         <div className="flex items-center gap-3 mb-5">
@@ -550,6 +570,18 @@ export default function MapaPage() {
             )}
           </button>
 
+          {/* History */}
+          <button
+            onClick={() => { setShowHistory((v) => !v); setShowValidation(false) }}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-colors ${
+              showHistory ? 'border-brand/30 bg-brand/5 text-brand' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+            title="Historial de versiones"
+          >
+            <History size={13} />
+            Historial
+          </button>
+
           {/* Three-dot dropdown */}
           <div className="relative">
             <button
@@ -599,7 +631,7 @@ export default function MapaPage() {
 
           {/* Save (draft only) */}
           {isDraft && (
-            <Button size="sm" leftIcon={<Save size={13} />} onClick={saveDiagram} disabled={!isDirty}>
+            <Button size="sm" leftIcon={<Save size={13} />} onClick={handleSave} disabled={!isDirty}>
               Guardar
             </Button>
           )}
@@ -634,6 +666,16 @@ export default function MapaPage() {
         {/* Validation panel as overlay */}
         {showValidation && (
           <ValidationPanel issues={validationIssues} onClose={() => setShowValidation(false)} />
+        )}
+
+        {/* Version history panel */}
+        {showHistory && diagramId && (
+          <VersionHistoryPanel
+            diagramId={diagramId}
+            refreshKey={historyRefreshKey}
+            onClose={() => setShowHistory(false)}
+            onRestore={handleRestore}
+          />
         )}
 
         {/* Permanent 320px inspector — always visible */}

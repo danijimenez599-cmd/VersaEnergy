@@ -6,6 +6,7 @@ import type {
   BalanceTree,
   MeasurementPoint,
 } from './graphTypes'
+import { isPhysicalEdge } from './graphTypes'
 import { validate } from './validators'
 
 interface CompilerInput {
@@ -37,9 +38,31 @@ interface CompilerInput {
 }
 
 export function compileGraph(input: CompilerInput): UtilityGraph {
+  const equipmentIdByNodeId = new Map(
+    input.nodes
+      .map((node) => {
+        const binding = node.properties?.asset_binding as Record<string, unknown> | undefined
+        const entityType = String(binding?.entity_type || '')
+        const entityId = typeof binding?.entity_id === 'string' ? binding.entity_id : null
+        return entityType === 'equipment' && entityId ? [node.id, entityId] as const : null
+      })
+      .filter((entry): entry is readonly [string, string] => Boolean(entry)),
+  )
+  const nodeIdByEquipmentId = new Map(
+    [...equipmentIdByNodeId.entries()].map(([nodeId, equipmentId]) => [equipmentId, nodeId]),
+  )
+
   const graphNodes: GraphNode[] = input.nodes.map((n) => {
+    const measurementBinding = n.properties?.measurement_binding as Record<string, unknown> | undefined
+    const boundMeasurementPointId = typeof measurementBinding?.measurement_point_id === 'string'
+      ? measurementBinding.measurement_point_id
+      : null
+    const boundEquipmentId = equipmentIdByNodeId.get(n.id)
     const nodeMeasPoints = input.measurementPoints.filter(
-      (mp) => mp.target_type === 'node' && mp.target_id === n.id,
+      (mp) =>
+        (mp.target_type === 'node' && mp.target_id === n.id) ||
+        (mp.target_type === 'equipment' && Boolean(boundEquipmentId) && mp.target_id === boundEquipmentId) ||
+        (Boolean(boundMeasurementPointId) && mp.id === boundMeasurementPointId),
     )
     return {
       id: n.id,
@@ -62,14 +85,16 @@ export function compileGraph(input: CompilerInput): UtilityGraph {
     const edgeMeasPoints = input.measurementPoints.filter(
       (mp) => mp.target_type === 'edge' && mp.target_id === e.id,
     )
+    const edgeType = e.edge_type as GraphEdge['type']
     return {
       id: e.id,
       diagramEdgeId: e.id,
       source: e.source_node_id,
       target: e.target_node_id,
-      type: e.edge_type as GraphEdge['type'],
+      type: edgeType,
       utility: e.utility || 'unknown',
       flowDirection: e.flow_direction as GraphEdge['flowDirection'],
+      isAnnotation: !isPhysicalEdge(edgeType),
       label: e.label,
       lossFactor: e.loss_factor || undefined,
       leakFactor: e.leak_factor || undefined,
@@ -79,16 +104,29 @@ export function compileGraph(input: CompilerInput): UtilityGraph {
   })
 
   for (const edge of graphEdges) {
+    if (edge.isAnnotation) continue
     const sourceNode = nodeMap.get(edge.source)
     const targetNode = nodeMap.get(edge.target)
-    if (sourceNode) sourceNode.outgoing.push(edge.id)
-    if (targetNode) targetNode.incoming.push(edge.id)
+    if (edge.flowDirection === 'target_to_source') {
+      if (targetNode) targetNode.outgoing.push(edge.id)
+      if (sourceNode) sourceNode.incoming.push(edge.id)
+    } else {
+      if (sourceNode) sourceNode.outgoing.push(edge.id)
+      if (targetNode) targetNode.incoming.push(edge.id)
+      if (edge.flowDirection === 'bidirectional') {
+        if (targetNode) targetNode.outgoing.push(edge.id)
+        if (sourceNode) sourceNode.incoming.push(edge.id)
+      }
+    }
   }
 
   const measurementScopes: MeasurementScope[] = input.measurementPoints.map((mp) => {
     const targets: { type: 'node' | 'edge'; id: string }[] = []
     if (mp.target_type === 'node' || mp.target_type === 'edge') {
       targets.push({ type: mp.target_type, id: mp.target_id })
+    } else if (mp.target_type === 'equipment') {
+      const nodeId = nodeIdByEquipmentId.get(mp.target_id)
+      if (nodeId) targets.push({ type: 'node', id: nodeId })
     }
     const coverage = targets.length > 0 ? 'direct' : 'none'
     return {
@@ -107,7 +145,7 @@ export function compileGraph(input: CompilerInput): UtilityGraph {
       (n.utility !== 'unknown' && n.outgoing.length > 0 && n.incoming.length === 0),
   )
   for (const source of sourceNodes) {
-    balanceTrees.push(buildBalanceTree(source, nodeMap, graphEdges))
+    balanceTrees.push(buildBalanceTree(source, nodeMap, graphEdges.filter((edge) => !edge.isAnnotation)))
   }
 
   const graph: UtilityGraph = {
@@ -151,12 +189,26 @@ function buildBalanceTree(
   for (const edgeId of node.outgoing) {
     const edge = edges.find((e) => e.id === edgeId)
     if (!edge) continue
-    const childNode = nodeMap.get(edge.target)
+    const nextNodeId = getNextNodeId(node.id, edge)
+    if (!nextNodeId) continue
+    const childNode = nodeMap.get(nextNodeId)
     if (!childNode || visited.has(childNode.id)) continue
     tree.children.push(buildBalanceTree(childNode, nodeMap, edges, visited))
   }
 
   return tree
+}
+
+function getNextNodeId(currentNodeId: string, edge: GraphEdge): string | null {
+  if (edge.flowDirection === 'target_to_source') {
+    return edge.target === currentNodeId ? edge.source : null
+  }
+  if (edge.flowDirection === 'bidirectional') {
+    if (edge.source === currentNodeId) return edge.target
+    if (edge.target === currentNodeId) return edge.source
+    return null
+  }
+  return edge.source === currentNodeId ? edge.target : null
 }
 
 export function compileFromRows(

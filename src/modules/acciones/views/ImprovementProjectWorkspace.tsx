@@ -22,6 +22,7 @@ const TABS = [
   { id: 'overview', label: 'Resumen' },
   { id: 'gantt',    label: 'Plan / Gantt' },
   { id: 'tasks',    label: 'Tareas' },
+  { id: 'm_and_v',  label: 'M&V (Monitoreo)' },
   { id: 'closeout', label: 'Cierre' },
 ]
 
@@ -263,6 +264,57 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
             })}
           </div>
         </div>
+      )}
+
+      {/* ── Tab: M&V (Monitoreo y Verificación) ────────────────────────────────── */}
+      {activeTab === 'm_and_v' && (
+        <Card padding="md">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+              <BarChart2 size={15} className="text-brand-blue" />
+              Monitoreo y Verificación (IPMVP)
+            </h3>
+            <Button size="sm" variant="secondary" leftIcon={<Plus size={13} />}>
+              Registrar lectura
+            </Button>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 flex items-start gap-2 mb-4">
+            <div className="mt-0.5 shrink-0"><BarChart2 size={14} className="text-blue-600" /></div>
+            <div>
+              <p className="text-sm font-medium text-blue-800">Seguimiento de ahorros proyectados</p>
+              <p className="text-xs text-blue-600 mt-0.5">
+                Compara los ahorros reales verificados contra la línea base ajustada.
+                Ahorro esperado: {item.estimated_energy_savings?.toLocaleString()} {item.savings_unit}/año.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="border border-border rounded-lg p-3 bg-gray-50">
+              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Variables de Línea Base</p>
+              <div className="space-y-2 text-sm">
+                <InfoRow label="Periodo de Línea Base" value="Ene 2023 - Dic 2023" />
+                <InfoRow label="Consumo base promedio" value={`15,000 ${item.savings_unit}/mes`} />
+                <InfoRow label="Factor de ajuste (Producción)" value="Variable independiente" />
+              </div>
+            </div>
+
+            <div className="border border-border rounded-lg p-3 bg-emerald-50">
+              <p className="text-xs font-semibold text-emerald-700 uppercase mb-2">Desempeño actual</p>
+              <div className="space-y-2 text-sm">
+                <InfoRow label="Ahorro verificado (acumulado)" value={`0 ${item.savings_unit}`} green />
+                <InfoRow label="Cumplimiento del objetivo" value="0%" green />
+                <InfoRow label="Periodo de reporte M&V" value="En curso" />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 py-8 text-center text-sm text-gray-400 border border-dashed border-gray-300 rounded-lg">
+            No hay lecturas de verificación registradas aún. <br/>
+            Agrega el primer registro posterior a la implementación para iniciar el tracking.
+          </div>
+        </Card>
       )}
 
       {/* ── Tab: Cierre ─────────────────────────────────────────────── */}

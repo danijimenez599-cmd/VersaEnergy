@@ -1,18 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/services/supabase'
-import { PageHeader } from '@/shared/PageHeader'
 import { Button } from '@/shared/Button'
 import { Badge } from '@/shared/Badge'
 import { Card } from '@/shared/Card'
 import { EmptyState } from '@/shared/EmptyState'
 import { Modal } from '@/shared/Modal'
 import { useUIStore } from '@/store/uiStore'
-import {
-  OperationalContextBanner,
-  OperationalContextSummary,
-  getEnergyPeriodRange,
-  getUtilityLabel,
-} from '@/shared/OperationalContext'
+import { getEnergyPeriodRange, getUtilityLabel } from '@/shared/OperationalContext'
+import { compileFromRows } from '@/services/topology-engine/compiler'
+import { calculateBalance } from '@/services/balance-engine'
+import type { MeasurementPoint } from '@/services/topology-engine/graphTypes'
 import {
   Scale, Calculator, ChevronRight, AlertTriangle,
   CheckCircle, Info, TrendingDown, BarChart2, Minus, Plus,
@@ -36,16 +34,15 @@ interface DiagramMeta {
   id: string; name: string; utility_type: string | null; status: string
 }
 
-interface MPRow {
-  id: string; tag: string; name: string; utility: string; unit: string; measurement_type: string
-}
+type MPRow = MeasurementPoint
 
 // ─── Wizard steps ─────────────────────────────────────────────────────────────
 
 const WIZARD_STEPS = [
   { n: 1, label: 'Configurar' },
-  { n: 2, label: 'Revisar datos' },
-  { n: 3, label: 'Resultado' },
+  { n: 2, label: 'Supuestos' },
+  { n: 3, label: 'Revisar datos' },
+  { n: 4, label: 'Resultado' },
 ]
 
 // ─── Coverage color ──────────────────────────────────────────────────────────
@@ -64,6 +61,7 @@ export default function BalancesPage() {
   const [selected, setSelected] = useState<BalanceRow | null>(null)
   const [showWizard, setShowWizard] = useState(false)
   const { selectedSiteId, selectedUtilityType, selectedPeriod } = useUIStore()
+  const navigate = useNavigate()
 
   const loadBalances = useCallback(async () => {
     if (!selectedSiteId) { setBalances([]); return }
@@ -86,16 +84,13 @@ export default function BalancesPage() {
 
   return (
     <div>
-      <PageHeader title="Balances" description="Balance de utilities por periodo con trazabilidad de diagrama"
-        actions={
-          <Button size="sm" leftIcon={<Calculator size={14} />}
-            onClick={() => setShowWizard(true)} disabled={!selectedSiteId || !selectedUtilityType}>
-            Ejecutar balance
-          </Button>
-        } />
-
-      <OperationalContextSummary />
-      <OperationalContextBanner />
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h2 className="text-sm font-bold text-[--color-tx-2]">Balances de energía</h2>
+        <Button size="sm" leftIcon={<Calculator size={14} />}
+          onClick={() => setShowWizard(true)} disabled={!selectedSiteId || !selectedUtilityType}>
+          Ejecutar balance
+        </Button>
+      </div>
 
       {!selectedUtilityType && selectedSiteId && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 flex items-center gap-2">
@@ -160,8 +155,20 @@ export default function BalancesPage() {
 
                 {/* Expanded detail */}
                 {selected?.id === b.id && (
-                  <div className="mt-4 pt-4 border-t border-border">
+                  <div className="mt-4 pt-4 border-t border-border space-y-4">
                     <BalanceDetail balance={b} />
+                    {ua > 5 && (
+                      <div className="flex items-center gap-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
+                        <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+                        <p className="text-sm text-amber-800 flex-1">
+                          El {ua.toFixed(1)}% no explicado puede representar una oportunidad de ahorro.
+                        </p>
+                        <Button size="sm" variant="secondary"
+                          onClick={(e) => { e.stopPropagation(); navigate('/acciones') }}>
+                          Crear oportunidad →
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </Card>
@@ -264,6 +271,19 @@ function BalanceDetail({ balance: b }: { balance: BalanceRow }) {
   )
 }
 
+async function findPublishedVersionId(diagramId: string): Promise<string | null> {
+  if (!diagramId) return null
+  const { data } = await supabase
+    .from('energy_diagram_versions')
+    .select('id')
+    .eq('diagram_id', diagramId)
+    .eq('is_published', true)
+    .order('version_number', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data?.id || null
+}
+
 // ─── Balance Run Wizard ────────────────────────────────────────────────────────
 
 function BalanceWizard({ siteId, utilityType, selectedPeriod, onComplete, onCancel }: {
@@ -276,19 +296,23 @@ function BalanceWizard({ siteId, utilityType, selectedPeriod, onComplete, onCanc
   const [mps, setMps] = useState<MPRow[]>([])
   const [mpSummary, setMpSummary] = useState<{ id: string; tag: string; count: number; sum: number }[]>([])
   const [result, setResult] = useState<{
-    totalInput: number; measured: number; unaccounted: number; coverage: number
+    totalInput: number; measured: number; unaccounted: number; coverage: number; unit: string
     nodeResults: BalanceNodeResult[]
   } | null>(null)
   const [running, setRunning] = useState(false)
   const [notes, setNotes] = useState('')
+  const [assumptions, setAssumptions] = useState({ technicalLossesPct: 2.0, expectedLeaksPct: 0.5 })
 
   useEffect(() => {
     supabase.from('energy_diagrams').select('id, name, utility_type, status')
       .eq('site_id', siteId).eq('utility_type', utilityType)
+      .eq('status', 'published')
       .then(({ data }) => { setDiagrams(data || []); if (data?.length === 1) setSelectedDiagram(data[0].id) })
-    supabase.from('measurement_points').select('id, tag, name, utility, unit, measurement_type')
+    supabase
+      .from('measurement_points')
+      .select('id, site_id, tag, name, target_type, target_id, utility, measurement_type, quantity, unit, source_type, source_config, accumulator_config, is_active, created_at, updated_at')
       .eq('site_id', siteId).eq('utility', utilityType)
-      .then(({ data }) => setMps(data || []))
+      .then(({ data }) => setMps((data || []) as MPRow[]))
   }, [siteId, utilityType])
 
   async function loadDataPreview() {
@@ -307,43 +331,69 @@ function BalanceWizard({ siteId, utilityType, selectedPeriod, onComplete, onCanc
   async function runBalance() {
     setRunning(true)
     const { startIso, endIso } = getEnergyPeriodRange(selectedPeriod)
-    const { data: readings } = await supabase.from('energy_readings_raw')
-      .select('measurement_point_id, value, timestamp')
-      .gte('timestamp', startIso).lt('timestamp', endIso)
+    const lookbackStart = new Date(startIso)
+    lookbackStart.setFullYear(lookbackStart.getFullYear() - 1)
+    const mpIds = mps.map((mp) => mp.id)
 
-    let totalInput = 0
-    let measured = 0
-    const nodeResults: BalanceNodeResult[] = []
+    const [
+      { data: nodeRows },
+      { data: edgeRows },
+      { data: readings },
+      diagramVersionId,
+    ] = await Promise.all([
+      supabase.from('energy_diagram_nodes').select('*').eq('diagram_id', selectedDiagram),
+      supabase.from('energy_diagram_edges').select('*').eq('diagram_id', selectedDiagram),
+      supabase.from('energy_readings_raw')
+        .select('measurement_point_id, value, unit, timestamp')
+        .in('measurement_point_id', mpIds)
+        .gte('timestamp', lookbackStart.toISOString())
+        .lt('timestamp', endIso),
+      findPublishedVersionId(selectedDiagram),
+    ])
 
-    for (const mp of mps) {
-      const mpReadings = (readings || []).filter((r) => r.measurement_point_id === mp.id)
-      const sum = mpReadings.reduce((s, r) => s + Number(r.value), 0)
-      totalInput += sum
-      measured += sum
-      nodeResults.push({ nodeId: mp.id, tag: mp.tag, consumption: sum, coverage: mpReadings.length > 0 ? 'measured' : 'unmetered' })
-    }
-
-    const unaccounted = Math.max(0, totalInput - measured)
-    const coverage = totalInput > 0 ? (measured / totalInput) * 100 : 0
+    const graph = compileFromRows(selectedDiagram, diagramVersionId || selectedDiagram, nodeRows || [], edgeRows || [], mps)
+    const balance = calculateBalance(
+      graph,
+      (readings || []).map((reading) => ({
+        measurement_point_id: reading.measurement_point_id,
+        timestamp: reading.timestamp,
+        value: Number(reading.value),
+        unit: reading.unit,
+      })),
+      { from: new Date(startIso), to: new Date(endIso) },
+    )
 
     await supabase.from('energy_balances').insert({
       site_id: siteId, utility: utilityType,
       period_start: startIso, period_end: endIso,
-      total_input: totalInput, measured_consumption: measured,
-      calculated_consumption: 0, estimated_consumption: 0,
-      technical_losses: 0, estimated_leaks: 0, returns: 0,
-      unaccounted_for: unaccounted,
-      unaccounted_for_percent: totalInput > 0 ? (unaccounted / totalInput) * 100 : 0,
-      measurement_coverage: coverage, node_results: JSON.stringify(nodeResults),
-      diagram_version_id: selectedDiagram || null, notes,
+      total_input: balance.totalInput,
+      measured_consumption: balance.measuredConsumption,
+      calculated_consumption: balance.calculatedConsumption,
+      estimated_consumption: balance.estimatedConsumption,
+      technical_losses: balance.totalInput * (assumptions.technicalLossesPct / 100),
+      estimated_leaks: balance.totalInput * (assumptions.expectedLeaksPct / 100),
+      returns: balance.returns,
+      unaccounted_for: balance.unaccountedFor,
+      unaccounted_for_percent: balance.unaccountedForPercent,
+      measurement_coverage: balance.measurementCoverage,
+      node_results: balance.nodeResults,
+      diagram_version_id: diagramVersionId,
+      notes,
     })
 
-    setResult({ totalInput, measured, unaccounted, coverage, nodeResults })
+    setResult({
+      totalInput: balance.totalInput,
+      measured: balance.measuredConsumption + balance.calculatedConsumption,
+      unaccounted: balance.unaccountedFor,
+      coverage: balance.measurementCoverage,
+      unit: balance.unit,
+      nodeResults: balance.nodeResults,
+    })
     setRunning(false)
-    setStep(3)
+    setStep(4)
   }
 
-  const canRun = mps.length > 0
+  const canRun = mps.length > 0 && Boolean(selectedDiagram)
 
   return (
     <div className="space-y-5">
@@ -373,16 +423,16 @@ function BalanceWizard({ siteId, utilityType, selectedPeriod, onComplete, onCanc
               <p className="text-sm font-medium text-blue-800">Balance para {getUtilityLabel(utilityType)}</p>
               <p className="text-xs text-blue-600 mt-0.5">
                 {mps.length} puntos de medición disponibles.
-                {diagrams.length > 0 ? ` ${diagrams.length} diagrama(s) de referencia.` : ' Sin diagramas publicados (opcional).'}
+                {diagrams.length > 0 ? ` ${diagrams.length} diagrama(s) publicado(s).` : ' Sin diagramas publicados para este utility.'}
               </p>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-2">Diagrama de referencia (opcional)</label>
+            <label className="block text-xs font-medium text-gray-600 mb-2">Diagrama publicado para balance</label>
             <select value={selectedDiagram} onChange={(e) => setSelectedDiagram(e.target.value)}
               className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-surface cursor-pointer">
-              <option value="">Sin diagrama asociado</option>
+              <option value="">Seleccionar diagrama publicado</option>
               {diagrams.map((d) => (
                 <option key={d.id} value={d.id}>{d.name} ({d.status})</option>
               ))}
@@ -398,14 +448,57 @@ function BalanceWizard({ siteId, utilityType, selectedPeriod, onComplete, onCanc
 
           {!canRun && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-100 text-sm text-amber-700">
-              <AlertTriangle size={14} /> No hay puntos de medición para {getUtilityLabel(utilityType)} en este sitio.
+              <AlertTriangle size={14} /> Necesitas un diagrama publicado y puntos de medición para {getUtilityLabel(utilityType)}.
             </div>
           )}
         </div>
       )}
 
-      {/* Step 2 — Revisar datos */}
+      {/* Step 2 — Supuestos (Simulación) */}
       {step === 2 && (
+        <div className="space-y-4">
+          <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 flex items-start gap-2">
+            <Info size={14} className="text-blue-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-blue-800">Supuestos de Pérdidas</p>
+              <p className="text-xs text-blue-600 mt-0.5">
+                Define el porcentaje esperado de pérdidas técnicas y fugas para este balance.
+                Esto ayudará a categorizar la energía no explicada.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Pérdidas técnicas esperadas (%)</label>
+              <div className="relative">
+                <input
+                  type="number" step="0.1"
+                  value={assumptions.technicalLossesPct}
+                  onChange={(e) => setAssumptions(a => ({ ...a, technicalLossesPct: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                />
+              </div>
+              <p className="text-[10px] text-gray-500 mt-1">Transformación, calor, distancia.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Fugas estimadas (%)</label>
+              <div className="relative">
+                <input
+                  type="number" step="0.1"
+                  value={assumptions.expectedLeaksPct}
+                  onChange={(e) => setAssumptions(a => ({ ...a, expectedLeaksPct: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                />
+              </div>
+              <p className="text-[10px] text-gray-500 mt-1">Fugas menores aceptadas en red.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Step 3 — Revisar datos */}
+      {step === 3 && (
         <div className="space-y-3">
           <p className="text-sm text-gray-600 font-medium">Lecturas disponibles en el periodo seleccionado:</p>
           {mpSummary.length === 0 ? (
@@ -439,14 +532,14 @@ function BalanceWizard({ siteId, utilityType, selectedPeriod, onComplete, onCanc
         </div>
       )}
 
-      {/* Step 3 — Resultado */}
-      {step === 3 && result && (
+      {/* Step 4 — Resultado */}
+      {step === 4 && result && (
         <div className="space-y-4">
           <div className="flex items-center gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-100 rounded-lg text-sm text-emerald-700">
             <CheckCircle size={15} /> Balance ejecutado y guardado correctamente.
           </div>
 
-          <BalanceBar input={result.totalInput} measured={result.measured} unaccounted={result.unaccounted} unit="" />
+          <BalanceBar input={result.totalInput} measured={result.measured} unaccounted={result.unaccounted} unit={result.unit} />
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
@@ -476,23 +569,28 @@ function BalanceWizard({ siteId, utilityType, selectedPeriod, onComplete, onCanc
       {/* Navigation */}
       <div className="flex justify-between pt-3 border-t border-border">
         <div>
-          {step > 1 && step < 3 && (
+          {step > 1 && step < 4 && (
             <Button variant="secondary" size="sm" onClick={() => setStep(step - 1)}>← Anterior</Button>
           )}
         </div>
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={onCancel}>Cancelar</Button>
           {step === 1 && (
-            <Button size="sm" disabled={!canRun} onClick={() => { loadDataPreview(); setStep(2) }} rightIcon={<ChevronRight size={13} />}>
-              Revisar datos
+            <Button size="sm" disabled={!canRun} onClick={() => setStep(2)} rightIcon={<ChevronRight size={13} />}>
+              Siguiente
             </Button>
           )}
           {step === 2 && (
+            <Button size="sm" onClick={() => { loadDataPreview(); setStep(3) }} rightIcon={<ChevronRight size={13} />}>
+              Revisar datos
+            </Button>
+          )}
+          {step === 3 && (
             <Button size="sm" loading={running} onClick={runBalance} leftIcon={<Calculator size={13} />}>
               Ejecutar balance
             </Button>
           )}
-          {step === 3 && (
+          {step === 4 && (
             <Button size="sm" onClick={onComplete} leftIcon={<CheckCircle size={13} />}>
               Ver balances
             </Button>
