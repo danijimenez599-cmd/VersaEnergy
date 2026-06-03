@@ -66,33 +66,17 @@ interface SiteRow {
   address: string | null
 }
 
-interface AreaRow {
+interface AssetCompatRow {
   id: string
+  site_id: string
+  parent_id: string | null
   name: string
   code: string | null
-  description: string | null
-}
-
-interface SystemRow {
-  id: string
-  code: string | null
-  name: string
-  description: string | null
-  utility_type: string
-  area_id: string | null
-  properties: Record<string, unknown> | null
-}
-
-interface EquipmentRow {
-  id: string
-  tag: string
-  name: string
-  equipment_type: string
-  utility_type: string
-  area_id: string | null
-  utility_system_id: string | null
+  asset_type: string
+  category: string | null
   status: string
-  properties: Record<string, unknown> | null
+  utility_type: string | null
+  energy_role: string | null
 }
 
 interface MeasurementPointRow {
@@ -110,15 +94,11 @@ export async function loadEnergyAssetTree(
 ): Promise<EnergyAssetTreeResult> {
   const [
     { data: site },
-    { data: areas },
-    { data: systems },
-    { data: equipment },
+    { data: assetsCompat },
     { data: measurementPoints },
   ] = await Promise.all([
     supabase.from('sites').select('id, name, code, address').eq('id', siteId).single(),
-    supabase.from('energy_areas').select('id, name, code, description').eq('site_id', siteId).order('name'),
-    querySystems(siteId, utilityType),
-    queryEquipment(siteId, utilityType),
+    queryAssetsCompat(siteId, utilityType),
     queryMeasurementPoints(siteId, utilityType),
   ])
 
@@ -128,31 +108,18 @@ export async function loadEnergyAssetTree(
 
   return buildEnergyAssetTree({
     site: site as SiteRow,
-    areas: (areas || []) as AreaRow[],
-    systems: (systems || []) as SystemRow[],
-    equipment: (equipment || []) as EquipmentRow[],
+    assetsCompat: (assetsCompat || []) as AssetCompatRow[],
     measurementPoints: (measurementPoints || []) as MeasurementPointRow[],
   })
 }
 
-function querySystems(siteId: string, utilityType: string | null) {
+function queryAssetsCompat(siteId: string, utilityType: string | null) {
   let query = supabase
-    .from('utility_systems')
-    .select('id, code, name, description, utility_type, area_id, properties')
+    .from('assets_compat')
+    .select('id, site_id, parent_id, name, code, asset_type, category, status, utility_type, energy_role')
     .eq('site_id', siteId)
-    .eq('is_active', true)
+    .neq('status', 'decommissioned')
     .order('name')
-
-  if (utilityType) query = query.eq('utility_type', utilityType)
-  return query
-}
-
-function queryEquipment(siteId: string, utilityType: string | null) {
-  let query = supabase
-    .from('energy_equipment')
-    .select('id, tag, name, equipment_type, utility_type, area_id, utility_system_id, status, properties')
-    .eq('site_id', siteId)
-    .order('tag')
 
   if (utilityType) query = query.eq('utility_type', utilityType)
   return query
@@ -186,15 +153,11 @@ function emptyTree(): EnergyAssetTreeResult {
 
 function buildEnergyAssetTree({
   site,
-  areas,
-  systems,
-  equipment,
+  assetsCompat,
   measurementPoints,
 }: {
   site: SiteRow
-  areas: AreaRow[]
-  systems: SystemRow[]
-  equipment: EquipmentRow[]
+  assetsCompat: AssetCompatRow[]
   measurementPoints: MeasurementPointRow[]
 }): EnergyAssetTreeResult {
   const nodes = new Map<string, EnergyAssetTreeNode>()
@@ -217,76 +180,29 @@ function buildEnergyAssetTree({
   })
   nodes.set(root.id, root)
 
-  for (const area of areas) {
-    const areaNode = createNode({
-      id: toNodeId('area', area.id),
-      sourceId: area.id,
-      parentId: root.id,
-      type: 'area',
-      name: area.name,
-      code: area.code,
-      utility: null,
-      status: 'active',
-      description: area.description,
-      properties: {},
-      isMeasurementAsset: false,
-      measurementPointCount: countMeasurements(measurementPoints, area.id),
-      cmmsReadiness: area.code ? 'ready' : 'partial',
-      cmmsNotes: area.code ? ['Area lista para CMMS'] : ['Agregar codigo de area'],
-    })
-    nodes.set(areaNode.id, areaNode)
-  }
-
-  for (const system of systems) {
-    const systemEquipment = equipment.filter((item) => item.utility_system_id === system.id)
-    const areaId = system.area_id || inferSystemAreaId(systemEquipment)
-    const parentId = areaId ? toNodeId('area', areaId) : root.id
-    const isMeasurementAsset = Boolean(system.properties?.asset_role === 'measurement_subsystem')
-    const systemNode = createNode({
-      id: toNodeId('system', system.id),
-      sourceId: system.id,
-      parentId: nodes.has(parentId) ? parentId : root.id,
-      type: 'system',
-      name: system.name,
-      code: system.code,
-      utility: system.utility_type,
-      status: 'active',
-      description: system.description,
-      properties: system.properties || {},
-      isMeasurementAsset,
-      measurementPointCount: countMeasurements(measurementPoints, system.id),
-      cmmsReadiness: systemEquipment.length > 0 ? 'partial' : 'missing',
-      cmmsNotes: buildSystemNotes(system, systemEquipment, isMeasurementAsset),
-    })
-    nodes.set(systemNode.id, systemNode)
-  }
-
-  for (const item of equipment) {
-    const preferredParentId = item.utility_system_id
-      ? toNodeId('system', item.utility_system_id)
-      : null
-    const areaParentId = item.area_id ? toNodeId('area', item.area_id) : null
-    const parentId = [preferredParentId, areaParentId, root.id].find((id) => id && nodes.has(id)) || root.id
+  for (const item of assetsCompat) {
+    const parentId = item.parent_id ? toNodeId(getAssetTypeFromCompat(item.parent_id, assetsCompat), item.parent_id) : root.id
     const measurementCount = countMeasurements(measurementPoints, item.id)
-    const isMeasurementAsset = item.equipment_type === 'meter' || item.properties?.asset_role === 'measurement_device'
+    const isMeasurementAsset = item.energy_role === 'measurement_device' || item.energy_role === 'measurement_subsystem'
 
-    const equipmentNode = createNode({
-      id: toNodeId('equipment', item.id),
+    const nodeType = item.asset_type as EnergyAssetNodeType
+    const assetNode = createNode({
+      id: toNodeId(nodeType, item.id),
       sourceId: item.id,
-      parentId,
-      type: 'equipment',
+      parentId: nodes.has(parentId) ? parentId : root.id,
+      type: nodeType,
       name: item.name,
-      code: item.tag,
+      code: item.code,
       utility: item.utility_type,
       status: item.status,
-      description: item.equipment_type,
-      properties: item.properties || {},
+      description: item.category || '',
+      properties: { asset_role: item.energy_role },
       isMeasurementAsset,
       measurementPointCount: measurementCount,
-      cmmsReadiness: getEquipmentReadiness(item, measurementCount),
-      cmmsNotes: buildEquipmentNotes(item, measurementCount, isMeasurementAsset),
+      cmmsReadiness: item.code ? 'ready' : 'partial',
+      cmmsNotes: buildCompatNotes(item, measurementCount, isMeasurementAsset),
     })
-    nodes.set(equipmentNode.id, equipmentNode)
+    nodes.set(assetNode.id, assetNode)
   }
 
   for (const node of nodes.values()) {
@@ -317,6 +233,11 @@ function createNode(node: Omit<EnergyAssetTreeNode, 'children' | 'childCount'>):
   return { ...node, children: [], childCount: 0 }
 }
 
+function getAssetTypeFromCompat(id: string, assets: AssetCompatRow[]): EnergyAssetNodeType {
+  const asset = assets.find(a => a.id === id)
+  return (asset?.asset_type as EnergyAssetNodeType) || 'equipment'
+}
+
 function toNodeId(type: EnergyAssetNodeType, id: string) {
   return `${type}:${id}`
 }
@@ -327,35 +248,13 @@ function countMeasurements(measurementPoints: MeasurementPointRow[], targetId: s
   )).length
 }
 
-function inferSystemAreaId(equipment: EquipmentRow[]) {
-  const areaIds = new Set(equipment.map((item) => item.area_id).filter(Boolean))
-  return areaIds.size === 1 ? [...areaIds][0] as string : null
-}
-
-function buildSystemNotes(system: SystemRow, equipment: EquipmentRow[], isMeasurementAsset: boolean) {
-  const notes = [`Utility: ${system.utility_type}`]
-  if (isMeasurementAsset) notes.push('Subsistema especial para instrumentos y medidores mantenibles')
-  if (equipment.length === 0) notes.push('Vincular equipos al sistema')
-  if (equipment.length > 0) notes.push(`${equipment.length} equipo(s) vinculados`)
-  notes.push('Preparado para exportar como sistema CMMS')
-  return notes
-}
-
-function getEquipmentReadiness(item: EquipmentRow, measurementCount: number): CmmsReadiness {
-  if (!item.tag || !item.area_id) return 'missing'
-  if (!item.utility_system_id || measurementCount === 0) return 'partial'
-  return 'ready'
-}
-
-function buildEquipmentNotes(item: EquipmentRow, measurementCount: number, isMeasurementAsset: boolean) {
-  const notes: string[] = []
-  if (item.tag) notes.push(`TAG: ${item.tag}`)
-  if (!item.area_id) notes.push('Asignar area')
-  if (!item.utility_system_id) notes.push('Asignar sistema')
-  if (isMeasurementAsset) notes.push('Equipo de medicion: puede requerir calibracion, adjuntos y rutina')
-  if (measurementCount === 0 && !isMeasurementAsset) notes.push('Agregar o vincular medidor')
+function buildCompatNotes(item: AssetCompatRow, measurementCount: number, isMeasurementAsset: boolean) {
+  const notes = []
+  if (item.utility_type) notes.push(`Utility: ${item.utility_type}`)
+  if (isMeasurementAsset) notes.push('Activo de medición (puede requerir calibración)')
   if (measurementCount > 0) notes.push(`${measurementCount} punto(s) de medicion`)
-  notes.push('Equipo puede convertirse en activo CMMS')
+  if (!item.code) notes.push('Requiere código/TAG para integrarse al CMMS')
+  notes.push('Sincronizado vía vista assets_compat')
   return notes
 }
 

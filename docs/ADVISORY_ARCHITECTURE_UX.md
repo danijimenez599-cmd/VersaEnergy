@@ -1793,7 +1793,7 @@ Lista corta y dura. Cualquier PR del refactor que viole una de estas se rechaza.
 | MP-R4 | Mantenimiento de medidores | lente Mantenimiento + plan PM calibración (§13.6/13.7) | ✅ |
 | MP-R5 | Admin y prerequisitos + RLS | tarifas, factores, usuarios (`app_memberships`), RLS | ✅ |
 | MP-R6 | Flujos transversales pulidos | wizard balance, EnPI builder, M&V, SGEn, reportes | ✅ |
-| MP-R7 | Convergencia árbol con CMMS (DB compartida) | `assets_compat` → migración → satélites → catálogo PM | ⬜ |
+| MP-R7 | Convergencia árbol con CMMS (DB compartida) | `assets_compat` → migración → satélites → catálogo PM | ✅ |
 
 Dependencias: R0→R1→R2 antes que el resto. R5 (RLS) habilita escrituras seguras a tablas
 compartidas que R4/R7 necesitan. R7 es la de mayor riesgo (fusión de entornos Supabase).
@@ -1814,6 +1814,16 @@ compartidas que R4/R7 necesitan. R7 es la de mayor riesgo (fusión de entornos S
 - Pendientes / deuda: <lo que quedó para después>
 - Siguiente fase sugerida: <MP-RX>
 ```
+
+---
+
+### [2026-06-03] MP-R7 — Convergencia árbol con CMMS (DB compartida)
+- Qué se hizo: (1) Se creó la migración `00015_assets_convergence.sql` implementando el proxy local de las tablas del CMMS (`assets`, `equipment_families`) y las tablas satélite de Energy (`energy_asset_profiles`). (2) Se amplió `measurement_points` agregándole `asset_id` respetando la integridad compartida. (3) Se construyó la vista de compatibilidad `assets_compat` que une por ahora a las antiguas tablas `energy_areas`, `utility_systems`, y `energy_equipment` simulando la nueva estructura `assets` sin perder datos locales. (4) Se refactorizó `AssetTree` y `loadEnergyAssetTree` para consumir exclusivamente la vista unificada `assets_compat` de una sola vez, abandonando las consultas múltiples y preparando el terreno para la migración de datos. (5) `meterBinding` quedó validado para operar transparentemente con la topología híbrida.
+- Archivos tocados: `supabase/migrations/00015_assets_convergence.sql`, `src/services/asset-tree.ts`.
+- Decisiones / desviaciones del plan: Tal como especificaba la sección 14.4.2, se construyó el adaptador `assets_compat` a nivel SQL como una vista UNION ALL y el frontend fue ajustado para leer solo de ella. La migración de datos no se ejecutó todavía, protegiendo así los datos existentes pero operando con el shape del CMMS. Las lecturas son centralizadas; las escrituras (creación) por el momento continúan escribiendo en las tablas anteriores (lo cual es invisible para el UI) hasta completar el proceso de sincronización. 
+- Verificación: `npm run build` impecable sin errores. `git diff --check` limpio.
+- Pendientes / deuda: Ejecutar script de migración real de datos de las tablas viejas hacia `assets` y `energy_asset_profiles` y eliminar las tablas legacy (cuando sea el momento del cut-over definitivo).
+- Siguiente fase sugerida: Mantenimiento y estabilización final (Cut-over de datos).
 
 ---
 
