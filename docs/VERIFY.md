@@ -21,7 +21,8 @@ Todo cambio funcional debe actualizar la documentacion viva afectada:
 - `AGENTS.md` si cambia arquitectura, guardrails o estado de fases.
 - `docs/04_CURRENT_STATE_REFERENCE.md` si cambia que existe, que funciona o
   que falta.
-- `docs/05_MASTER_IMPROVEMENT_PLAN.md` si cambia estado de una fase.
+- `docs/ENERGY_ENGINEERING_BLUEPRINT.md` si cambia roadmap, fase viva,
+  decisiones de arquitectura o memoria de fase.
 - `docs/DATABASE.md` si cambia tabla, RLS o migracion.
 
 Si no aplica actualizar docs, indicalo explicitamente en el cierre.

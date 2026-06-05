@@ -11,7 +11,7 @@ Incluye PDF, CSV y exportaciones de datos y diagramas.
 |-----------------|---------|
 | Modulo UI (entry) | `src/modules/reportes/index.tsx` |
 
-Dependencia: `@react-pdf/renderer` (instalada, pendiente de conexion real).
+Dependencia: `@react-pdf/renderer` (instalada, PDF pendiente de conexion real).
 
 ## Modelo/Tablas
 
@@ -24,16 +24,21 @@ Pendiente: `energy_generated_reports` (historial de reportes).
 3. Selector de periodo, sitio, utility.
 4. Secciones incluidas configurable con checkboxes.
 5. Botones: Vista previa, Generar PDF, Exportar CSV.
+6. Reportes de balance consumen `energy_balance_sheets` y resultados
+   persistidos cuando existen.
 
-Estado actual: las exportaciones son mock (no usan `@react-pdf/renderer`
-real). La UI esta lista; falta conectar al motor de render.
+Estado actual:
+
+- CSV: exportacion operativa desde datos disponibles.
+- PDF: pendiente de render real con `@react-pdf/renderer`.
+- Historial de reportes generados: pendiente.
 
 ## Invariantes
 
 - Cada reporte indica periodo, utility, sitio, fuente y calidad.
 - Datos estimados se marcan.
 - Balances indican version de diagrama.
-- Reportes SGEn no contienen texto ISO propietario.
+- Reportes SGEn no contienen texto propietario ni referencias normativas visibles.
 - No generar reportes decorativos sin datos reales.
 
 ## Permisos
@@ -47,7 +52,7 @@ Visible para todos los usuarios autenticados.
 
 ## No hacer
 
-- No incluir texto ISO en reportes SGEn.
+- No incluir texto propietario ni referencias normativas visibles en reportes SGEn.
 - No generar PDF sin datos reales (cuando el motor este conectado).
 
 ## Verificacion recomendada

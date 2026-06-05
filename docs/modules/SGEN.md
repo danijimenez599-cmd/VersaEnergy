@@ -2,21 +2,24 @@
 
 ## Responsabilidad
 
-Workspace para operar un Sistema de Gestion de la Energia alineado con buenas practicas
-operativas de gestion energetica. No copia texto de estandares. No promete certificacion.
-Consume evidencia del resto de modulos y la organiza para auditoria y mejora continua.
+Workspace para operar un Sistema de Gestion de la Energia con criterio
+profesional: alcance, responsabilidades, revision energetica, usos
+significativos, objetivos, controles, auditoria, evidencia, acciones y mejora
+continua. No copia texto de estandares, no menciona codigos normativos en UX y
+no promete certificacion. Consume evidencia del resto de modulos y la organiza
+para auditoria y gestion ejecutiva.
 
 ## Archivos clave
 
 | Responsabilidad | Archivo |
 |-----------------|---------|
-| Modulo UI (entry) | `src/modules/iso50001/index.tsx` |
-| Politica energetica | `src/modules/iso50001/views/PolicyView.tsx` |
-| Revision por la direccion | `src/modules/iso50001/views/DirectionView.tsx` |
-| Riesgos y oportunidades | `src/modules/iso50001/views/RisksView.tsx` |
-| Alcance del SGEn | `src/modules/iso50001/views/ScopeView.tsx` |
-| Aviso legal | `src/modules/iso50001/views/LegalSettingsView.tsx` |
-| Status badge compartido | `src/modules/iso50001/components/SgenStatusBadge.tsx` |
+| Modulo UI (entry) | `src/modules/sgen/index.tsx` |
+| Politica energetica | `src/modules/sgen/views/PolicyView.tsx` |
+| Revision por la direccion | `src/modules/sgen/views/DirectionView.tsx` |
+| Riesgos y oportunidades | `src/modules/sgen/views/RisksView.tsx` |
+| Alcance del SGEn | `src/modules/sgen/views/ScopeView.tsx` |
+| Aviso de alcance | `src/modules/sgen/views/LegalSettingsView.tsx` |
+| Status badge compartido | `src/modules/sgen/components/SgenStatusBadge.tsx` |
 
 ## Modelo/Tablas
 
@@ -32,9 +35,10 @@ Consume evidencia del resto de modulos y la organiza para auditoria y mejora con
 - `sgen_nonconformities` — no conformidades con flujo open/in_progress/resolved/closed.
 - `sgen_risks_opportunities` — registro de riesgos y oportunidades con matriz prob x impacto.
 - `sgen_improvements` — mejoras verificadas (tabla de registro; acciones reales en `energy_improvements`).
-- `sgen_legal_notices` — aviso legal reconocido por usuario.
+- `sgen_legal_notices` — aviso de alcance reconocido por usuario.
 
-Migraciones: `00011_sgen_iso50001.sql`, `00017_sgen_enhancements.sql`.
+Migraciones base SGEn, mejoras de SGEn y trazabilidad desde Estudios hacia
+evidencia.
 
 ## Tabs del modulo
 
@@ -49,7 +53,7 @@ Migraciones: `00011_sgen_iso50001.sql`, `00017_sgen_enhancements.sql`.
 | Evidencia | Informacion documentada por dominio |
 | Direccion | Revision por la direccion con paquete auto-generado desde el sistema |
 | Alcance | Definicion de limites fisicos y organizacionales |
-| Legal | Aviso legal visible |
+| Alcance del producto | Aviso de alcance visible |
 
 ## Flujo principal
 
@@ -63,6 +67,22 @@ Migraciones: `00011_sgen_iso50001.sql`, `00017_sgen_enhancements.sql`.
 8. Preparar paquete automatico de revision directiva (datos del sistema).
 9. Tomar decisiones en revision directiva y registrarlas con responsable y fecha.
 
+## Regla de lenguaje
+
+El modulo debe ser compatible con auditorias y gestion energetica madura, pero
+sin apoyarse en referencias normativas visibles. La redaccion debe sonar a un
+profesional de gestion energetica:
+
+- "alcance energetico", no codigos normativos;
+- "revision energetica", no clausulas;
+- "evidencia objetiva", no articulos;
+- "brecha de gestion", no incumplimiento normativo copiado;
+- "revision ejecutiva", no lenguaje de certificadora;
+- "acciones y verificacion de eficacia", no frases propietarias.
+
+Los checklists, reportes y paquetes documentales deben ser originales,
+operativos y defendibles por evidencia del sistema.
+
 ## Paquete automatico de revision directiva
 
 El boton "Preparar paquete automatico" en la tab Direccion consulta en paralelo:
@@ -73,6 +93,7 @@ El boton "Preparar paquete automatico" en la tab Direccion consulta en paralelo:
 - No conformidades abiertas/cerradas y vencidas
 - Riesgos activos de nivel alto y oportunidades pendientes
 - Evidencia reciente documentada
+- Estudios energeticos recientes cuando existen como evidencia `energy_study`
 
 Pre-rellena las 6 secciones de entradas del formulario. El usuario revisa, ajusta y agrega las decisiones.
 
@@ -97,8 +118,12 @@ open → in_progress → resolved → closed
 ## Invariantes
 
 - **No copiar texto de ningun estandar** ni prometer certificacion.
-- Aviso legal visible y reconocido por usuario.
+- No mencionar codigos normativos, organismos ni certificacion en textos
+  visibles al cliente.
+- Aviso de alcance visible y reconocido por usuario.
 - La evidencia nace del sistema, no de formularios manuales.
+- Estudios Energeticos pueden generar evidencia `linked_entity_type =
+  'energy_study'` como snapshot tecnico propio.
 - Los objetivos SGEn se vinculan a EnPIs, no se duplican.
 - Las acciones correctivas van al modulo Acciones; SGEN guarda solo el vinculo.
 - Preguntas de auditoria son originales — redactadas operativamente, no copiadas.
@@ -114,6 +139,7 @@ Visible para todos los usuarios autenticados.
 | Acciones | `energy_improvements` | Objetivos (linked_improvement_id), NCs |
 | Desempeno | `energy_enpis` | SEUs (enpi_id), Objetivos (enpi_id) |
 | Desempeno | `energy_performance_results` | Revision energetica, paquete directivo |
+| Estudios Energeticos | `energy_studies`, `energy_study_findings` | Evidencia de revision energetica |
 | Medicion | `measurement_points` | SEUs (measurement_point_ids) |
 | Balances | `energy_balances` | Revision energetica (linked_balances — pendiente UI) |
 | Riesgos | `sgen_risks_opportunities` | Paquete directivo |
@@ -121,7 +147,7 @@ Visible para todos los usuarios autenticados.
 ## No hacer
 
 - No copiar articulos, clausulas, tablas o checklists de estandares.
-- No usar logos de organismos de certificacion.
+- No usar logos de organismos externos.
 - No prometer certificacion.
 - No crear formularios manuales cuando el dato existe en el sistema.
 - No duplicar objetivos vs targets de EnPI.

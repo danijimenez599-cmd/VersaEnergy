@@ -6,12 +6,14 @@ import {
   Calculator,
   CheckCircle2,
   ChevronRight,
+  Database,
   FlaskConical,
   Gauge,
   LineChart as LineChartIcon,
   Link2,
   Plus,
   Save,
+  Scale,
   Target,
   TrendingDown,
   TrendingUp,
@@ -32,6 +34,8 @@ import {
   YAxis,
 } from 'recharts'
 import { supabase } from '@/services/supabase'
+import { computeEnPITrend } from '@/services/enpi-engine'
+import type { EnPITrendPoint } from '@/services/enpi-engine'
 import { Badge, utilityBadgeVariant } from '@/shared/Badge'
 import { Button } from '@/shared/Button'
 import { Card } from '@/shared/Card'
@@ -52,10 +56,44 @@ interface EnPI {
   is_active: boolean
   description?: string | null
   formula?: EnPIFormula | null
+  // F2 — referential sources
+  numerator_type?: 'formula' | 'balance_sheet' | 'measurement_point'
+  numerator_ref_id?: string | null
+  numerator_side?: 'input' | 'output' | 'net' | null
+  denominator_type?: 'formula' | 'relevant_variable'
+  denominator_ref_id?: string | null
+  primary_group_id?: string | null
   baselines?: Baseline[]
   targets?: TargetRow[]
   results?: PerformanceResult[]
   linkedImprovements?: LinkedImprovement[]
+}
+
+interface BalanceSheetOption {
+  id: string
+  name: string
+  period_start: string
+  utility: string | null
+}
+
+interface RelevantVariableOption {
+  id: string
+  name: string
+  unit: string
+}
+
+interface EnPIGroup {
+  id: string
+  name: string
+  group_type: string
+  utility_type: string | null
+  sort_order: number
+}
+
+interface EnPIGroupMember {
+  group_id: string
+  enpi_id: string
+  membership_role: string
 }
 
 interface EnPIFormula {
@@ -138,7 +176,6 @@ interface LinkedImprovement {
 }
 
 type EnPIFormModal = { open: boolean; enpiId: string | null }
-
 const EMPTY_ENPI = {
   name: 'kWh por libra producida',
   utility: 'electricity',
@@ -163,6 +200,13 @@ const EMPTY_ENPI = {
     { name: 'Horas de operación', unit: 'h', source_type: 'manual', expected_impact: 'negative', description: 'Normaliza carga y utilización' },
   ] as SignificantVariable[],
   method: 'ratio',
+  // F2 — referential mode
+  numerator_mode: 'formula' as 'formula' | 'referential',
+  ref_numerator_type: 'measurement_point' as 'balance_sheet' | 'measurement_point',
+  ref_numerator_ref_id: '',
+  ref_numerator_side: 'input' as 'input' | 'output' | 'net',
+  ref_denominator_ref_id: '',
+  primary_group_id: '',
 }
 
 const EMPTY_BASELINE = { value: '', method: 'average', period_start: '', period_end: '' }
@@ -200,9 +244,15 @@ const AGGREGATION_LABELS: Record<string, string> = {
 export default function DesempenoPage() {
   const [enpis, setEnpis] = useState<EnPI[]>([])
   const [measurementPoints, setMeasurementPoints] = useState<MeasurementPoint[]>([])
+  const [balanceSheets, setBalanceSheets] = useState<BalanceSheetOption[]>([])
+  const [relevantVars, setRelevantVars] = useState<RelevantVariableOption[]>([])
+  const [enpiGroups, setEnpiGroups] = useState<EnPIGroup[]>([])
+  const [enpiGroupMembers, setEnpiGroupMembers] = useState<EnPIGroupMember[]>([])
+  const [selectedEnpiGroup, setSelectedEnpiGroup] = useState<string>('all')
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [showEnPIForm, setShowEnPIForm] = useState(false)
+  const [enpiDraft, setEnpiDraft] = useState<Partial<typeof EMPTY_ENPI> | null>(null)
   const [variablesWorkbench, setVariablesWorkbench] = useState<{ open: boolean; enpiId: string | null }>({ open: false, enpiId: null })
   const [baselineModal, setBaselineModal] = useState<EnPIFormModal>({ open: false, enpiId: null })
   const [targetModal, setTargetModal] = useState<EnPIFormModal>({ open: false, enpiId: null })
@@ -210,10 +260,17 @@ export default function DesempenoPage() {
 
   const { selectedSiteId, selectedUtilityType } = useUIStore()
 
+  function openBlankEnPIForm() {
+    setEnpiDraft(null)
+    setShowEnPIForm(true)
+  }
+
   const loadEnpis = useCallback(async () => {
     if (!selectedSiteId) {
       setEnpis([])
       setMeasurementPoints([])
+      setEnpiGroups([])
+      setEnpiGroupMembers([])
       return
     }
 
@@ -231,7 +288,15 @@ export default function DesempenoPage() {
       pointsQuery = pointsQuery.eq('utility', selectedUtilityType)
     }
 
-    const [{ data: enpiRows }, { data: pointRows }, { data: improvementRows }] = await Promise.all([
+    const [
+      { data: enpiRows },
+      { data: pointRows },
+      { data: improvementRows },
+      { data: sheetsRows },
+      { data: relevantRows },
+      { data: groupRows },
+      { data: memberRows },
+    ] = await Promise.all([
       enpiQuery,
       pointsQuery,
       supabase
@@ -240,7 +305,31 @@ export default function DesempenoPage() {
         .eq('site_id', selectedSiteId)
         .neq('status', 'cancelled')
         .order('created_at', { ascending: false }),
+      supabase
+        .from('energy_balance_sheets')
+        .select('id,name,period_start,utility')
+        .eq('site_id', selectedSiteId)
+        .order('period_start', { ascending: false }),
+      supabase
+        .from('relevant_variables')
+        .select('id,name,unit')
+        .eq('site_id', selectedSiteId)
+        .eq('is_active', true)
+        .order('name'),
+      supabase
+        .from('energy_enpi_groups')
+        .select('id,name,group_type,utility_type,sort_order')
+        .eq('site_id', selectedSiteId)
+        .eq('is_active', true)
+        .order('sort_order'),
+      supabase
+        .from('energy_enpi_group_members')
+        .select('group_id,enpi_id,membership_role'),
     ])
+    setBalanceSheets((sheetsRows ?? []) as BalanceSheetOption[])
+    setRelevantVars((relevantRows ?? []) as RelevantVariableOption[])
+    setEnpiGroups((groupRows ?? []) as EnPIGroup[])
+    setEnpiGroupMembers((memberRows ?? []) as EnPIGroupMember[])
     setMeasurementPoints((pointRows || []) as MeasurementPoint[])
 
     if (!enpiRows) {
@@ -275,22 +364,56 @@ export default function DesempenoPage() {
 
   const selectedEnpi = enpis.find((item) => item.id === selected) || enpis[0] || null
   const portfolio = useMemo(() => buildPortfolioStats(enpis), [enpis])
+  const visibleEnpis = useMemo(() => {
+    if (selectedEnpiGroup === 'all') return enpis
+    const allowed = new Set(enpiGroupMembers.filter((member) => member.group_id === selectedEnpiGroup).map((member) => member.enpi_id))
+    return enpis.filter((enpi) => allowed.has(enpi.id) || enpi.primary_group_id === selectedEnpiGroup)
+  }, [enpiGroupMembers, enpis, selectedEnpiGroup])
 
   async function handleCreateEnPI(form: typeof EMPTY_ENPI) {
     if (!selectedSiteId || !form.name) return
     const formula = buildFormulaFromForm(form)
+    const isReferential = form.numerator_mode === 'referential'
 
-    await supabase.from('energy_enpis').insert({
+    const relevantVar = isReferential ? relevantVars.find((v) => v.id === form.ref_denominator_ref_id) : null
+    const refPoint = isReferential && form.ref_numerator_type === 'measurement_point'
+      ? measurementPoints.find((point) => point.id === form.ref_numerator_ref_id)
+      : null
+    const numeratorUnit = isReferential
+      ? (form.ref_numerator_type === 'measurement_point' ? refPoint?.unit : 'kWh-eq')
+      : form.numerator_unit
+    const unit = isReferential
+      ? `${numeratorUnit ?? 'energia'}/${relevantVar?.unit ?? 'prod'}`
+      : `${form.numerator_unit}/${form.denominator_unit}`
+
+    const { data: created } = await supabase.from('energy_enpis').insert({
       site_id: selectedSiteId,
       name: form.name,
       utility: form.utility,
-      unit: `${form.numerator_unit}/${form.denominator_unit}`,
+      unit,
       scope: form.scope,
       frequency: form.frequency,
       description: form.description,
+      primary_group_id: form.primary_group_id || null,
       formula,
-    })
+      ...(isReferential && {
+        numerator_type: form.ref_numerator_type,
+        numerator_ref_id: form.ref_numerator_ref_id || null,
+        numerator_side: form.ref_numerator_type === 'balance_sheet' ? form.ref_numerator_side : null,
+        denominator_type: form.ref_denominator_ref_id ? 'relevant_variable' : 'formula',
+        denominator_ref_id: form.ref_denominator_ref_id || null,
+      }),
+    }).select('id').single()
+
+    if (created?.id && form.primary_group_id) {
+      await supabase.from('energy_enpi_group_members').insert({
+        group_id: form.primary_group_id,
+        enpi_id: created.id,
+        membership_role: 'primary',
+      })
+    }
     setShowEnPIForm(false)
+    setEnpiDraft(null)
     loadEnpis()
   }
 
@@ -343,24 +466,26 @@ export default function DesempenoPage() {
         <div className="relative z-10 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="max-w-3xl">
             <div className="mb-1 hidden flex-wrap items-center gap-1.5 sm:flex">
-              <Badge variant="info" className="border-sky-400/30 bg-sky-400/10 text-sky-100">ISO 50006</Badge>
+              <Badge variant="info" className="border-sky-400/30 bg-sky-400/10 text-sky-100">Método técnico</Badge>
               <Badge variant="neutral" className="border-white/15 bg-white/10 text-white">Periodo común</Badge>
               <Badge variant="neutral" className="border-white/15 bg-white/10 text-white">Variables significativas</Badge>
             </div>
             <h1 className="text-base font-black tracking-tight sm:text-lg">Centro técnico de EnPIs</h1>
             <p className="mt-0.5 hidden max-w-2xl text-[11px] leading-4 text-slate-300 lg:block">
-              Define indicadores como una relación energética trazable: consumo, producción, mismo periodo, variables relevantes, baseline, objetivo y resultado.
+              Define indicadores como una relación energética trazable: consumo, variable relevante del mismo periodo, contexto operativo, baseline, objetivo y resultado.
             </p>
           </div>
-          <Button
-            size="sm"
-            leftIcon={<Plus size={14} />}
-            onClick={() => setShowEnPIForm(true)}
-            disabled={!selectedSiteId}
-            className="bg-white text-slate-950 hover:bg-slate-100"
-          >
-            Nuevo EnPI técnico
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              leftIcon={<Plus size={14} />}
+              onClick={openBlankEnPIForm}
+              disabled={!selectedSiteId}
+              className="bg-white text-slate-950 hover:bg-slate-100"
+            >
+              Nuevo EnPI técnico
+            </Button>
+          </div>
         </div>
       </section>
 
@@ -373,28 +498,32 @@ export default function DesempenoPage() {
 
       {loading ? (
         <div className="py-16 text-center text-sm font-semibold text-slate-400">Cargando centro de desempeño...</div>
-      ) : enpis.length === 0 ? (
+      ) : visibleEnpis.length === 0 ? (
         <EmptyState
           icon={<LineChartIcon size={48} strokeWidth={1.5} />}
           title="Sin EnPIs técnicos"
           description={`No hay indicadores para ${getUtilityLabel(selectedUtilityType)} en esta planta. Crea uno como kWh/lb, kWh/ton o kWh/unidad con periodo y variables controladas.`}
           action={selectedSiteId && (
-            <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setShowEnPIForm(true)}>Crear primer EnPI</Button>
+            <Button size="sm" leftIcon={<Plus size={14} />} onClick={openBlankEnPIForm}>Crear primer EnPI</Button>
           )}
         />
       ) : (
         <div className="grid min-h-0 grid-cols-1 gap-3 md:h-[calc(100dvh-13rem)] md:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]">
           <EnPILibrary
-            enpis={enpis}
+            enpis={visibleEnpis}
+            groups={enpiGroups}
+            selectedGroup={selectedEnpiGroup}
+            onGroup={setSelectedEnpiGroup}
             selectedId={selectedEnpi?.id || null}
             onSelect={setSelected}
-            onCreate={() => setShowEnPIForm(true)}
+            onCreate={openBlankEnPIForm}
           />
           {selectedEnpi && (
             <>
               <EnPIWorkbench
                 enpi={selectedEnpi}
                 measurementPoints={measurementPoints}
+                relevantVars={relevantVars}
                 onBaseline={() => setBaselineModal({ open: true, enpiId: selectedEnpi.id })}
                 onTarget={() => setTargetModal({ open: true, enpiId: selectedEnpi.id })}
                 onDelete={() => setDeleteConfirm({ open: true, id: selectedEnpi.id })}
@@ -419,12 +548,27 @@ export default function DesempenoPage() {
         </div>
       )}
 
-      <Modal open={showEnPIForm} onClose={() => setShowEnPIForm(false)} title="Definir EnPI técnico" size="xl">
+      <Modal
+        open={showEnPIForm}
+        onClose={() => {
+          setShowEnPIForm(false)
+          setEnpiDraft(null)
+        }}
+        title="Definir EnPI técnico"
+        size="xl"
+      >
         <EnPIForm
           onSave={handleCreateEnPI}
-          onCancel={() => setShowEnPIForm(false)}
+          onCancel={() => {
+            setShowEnPIForm(false)
+            setEnpiDraft(null)
+          }}
           utilityType={selectedUtilityType}
           measurementPoints={measurementPoints}
+          balanceSheets={balanceSheets}
+          relevantVars={relevantVars}
+          enpiGroups={enpiGroups}
+          initial={enpiDraft ?? undefined}
         />
       </Modal>
 
@@ -469,13 +613,105 @@ export default function DesempenoPage() {
   )
 }
 
+function ReferentialTrendPanel({ enpi, relevantVars }: { enpi: EnPI; relevantVars: RelevantVariableOption[] }) {
+  const [trend, setTrend] = useState<EnPITrendPoint[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!enpi.numerator_type || enpi.numerator_type === 'formula') return
+    setLoading(true)
+    computeEnPITrend({
+      numerator_type: enpi.numerator_type,
+      numerator_ref_id: enpi.numerator_ref_id ?? null,
+      numerator_side: (enpi.numerator_side as 'input' | 'output' | 'net' | null) ?? null,
+      denominator_type: enpi.denominator_type ?? 'formula',
+      denominator_ref_id: enpi.denominator_ref_id ?? null,
+    }, 18)
+      .then(setTrend)
+      .finally(() => setLoading(false))
+  }, [enpi.id, enpi.numerator_type, enpi.numerator_ref_id, enpi.denominator_ref_id])
+
+  const relevantVar = relevantVars.find((v) => v.id === enpi.denominator_ref_id)
+  const chartData = trend.filter((p) => p.enpi_value != null).map((p) => ({
+    period: p.period.slice(5),
+    value: Number(p.enpi_value?.toFixed(3)),
+    num: p.numerator_value,
+    den: p.denominator_value,
+  }))
+
+  const MONTHS_ES: Record<string, string> = {
+    '01': 'Ene', '02': 'Feb', '03': 'Mar', '04': 'Abr', '05': 'May', '06': 'Jun',
+    '07': 'Jul', '08': 'Ago', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dic',
+  }
+
+  return (
+    <Card padding="none" className="overflow-hidden rounded-xl border-slate-200">
+      <div className="flex items-center gap-2 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-white px-4 py-3">
+        <Database size={14} className="text-blue-500 shrink-0" />
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tendencia referencial</p>
+          <h3 className="text-sm font-bold text-slate-900">
+            Calculado desde {enpi.numerator_type === 'balance_sheet' ? 'balance sheet' : 'medidor'} ÷ {relevantVar?.name ?? 'variable relevante'}
+          </h3>
+        </div>
+      </div>
+      {loading && (
+        <div className="flex justify-center py-10">
+          <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+      {!loading && chartData.length === 0 && (
+        <div className="py-10 text-center text-xs text-slate-400 italic">
+          Sin datos calculables en los últimos 18 meses — verifica que las lecturas energéticas y la variable relevante cubran el mismo período.
+        </div>
+      )}
+      {!loading && chartData.length > 0 && (
+        <div className="p-4">
+          <ResponsiveContainer width="100%" height={180}>
+            <ComposedChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+              <CartesianGrid vertical={false} stroke="#e2e8f0" strokeDasharray="4 4" />
+              <XAxis dataKey="period" tickFormatter={(v) => MONTHS_ES[v] ?? v} tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={44} />
+              <Tooltip
+                contentStyle={{ borderRadius: 10, borderColor: '#e2e8f0', fontSize: 11 }}
+                formatter={(val, name) => [Number(val ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 3 }), String(name)]}
+              />
+              <Line type="monotone" dataKey="value" name={enpi.unit} stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3, fill: '#2563eb' }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[10px]">
+            <div>
+              <p className="text-slate-400">Períodos con datos</p>
+              <p className="font-black text-slate-900">{chartData.length}</p>
+            </div>
+            <div>
+              <p className="text-slate-400">Último valor</p>
+              <p className="font-black text-slate-900">{chartData[chartData.length - 1]?.value ?? '—'} <span className="text-slate-400">{enpi.unit}</span></p>
+            </div>
+            <div>
+              <p className="text-slate-400">Denominador ({relevantVar?.unit ?? '—'})</p>
+              <p className="font-black text-slate-900">{chartData[chartData.length - 1]?.den?.toLocaleString('es-MX', { maximumFractionDigits: 0 }) ?? '—'}</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
 function EnPILibrary({
   enpis,
+  groups,
+  selectedGroup,
+  onGroup,
   selectedId,
   onSelect,
   onCreate,
 }: {
   enpis: EnPI[]
+  groups: EnPIGroup[]
+  selectedGroup: string
+  onGroup: (id: string) => void
   selectedId: string | null
   onSelect: (id: string) => void
   onCreate: () => void
@@ -489,6 +725,31 @@ function EnPILibrary({
             <h2 className="text-sm font-bold text-slate-900">Indicadores definidos</h2>
           </div>
           <Button size="xs" variant="secondary" icon={<Plus size={13} />} onClick={onCreate} aria-label="Nuevo EnPI" />
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1">
+          <button
+            type="button"
+            onClick={() => onGroup('all')}
+            className={[
+              'rounded-lg px-2 py-1 text-[10px] font-bold transition-colors',
+              selectedGroup === 'all' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-500 hover:text-slate-900',
+            ].join(' ')}
+          >
+            Todos
+          </button>
+          {groups.map((group) => (
+            <button
+              key={group.id}
+              type="button"
+              onClick={() => onGroup(group.id)}
+              className={[
+                'rounded-lg px-2 py-1 text-[10px] font-bold transition-colors',
+                selectedGroup === group.id ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-500 hover:text-slate-900',
+              ].join(' ')}
+            >
+              {group.name}
+            </button>
+          ))}
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -535,6 +796,7 @@ function EnPILibrary({
 function EnPIWorkbench({
   enpi,
   measurementPoints,
+  relevantVars,
   onBaseline,
   onTarget,
   onDelete,
@@ -542,6 +804,7 @@ function EnPIWorkbench({
 }: {
   enpi: EnPI
   measurementPoints: MeasurementPoint[]
+  relevantVars: RelevantVariableOption[]
   onBaseline: () => void
   onTarget: () => void
   onDelete: () => void
@@ -571,7 +834,7 @@ function EnPIWorkbench({
               </div>
               <h2 className="text-lg font-black tracking-tight text-slate-950">{enpi.name}</h2>
               <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
-                {enpi.description || 'Indicador tecnico para conectar consumo energetico, produccion del mismo periodo y variables significativas de operacion.'}
+                {enpi.description || 'Indicador tecnico para conectar consumo energetico, una variable relevante del mismo periodo y variables explicativas de operacion.'}
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
@@ -626,7 +889,7 @@ function EnPIWorkbench({
                 <div>
                   <LineChartIcon className="mx-auto mb-2 text-slate-300" size={34} />
                   <p className="text-sm font-semibold text-slate-500">Aún no hay suficientes resultados</p>
-                  <p className="mt-1 max-w-sm text-xs leading-5 text-slate-400">Cuando captures energía, producción y variables del mismo periodo, aquí verás la tendencia del EnPI.</p>
+                  <p className="mt-1 max-w-sm text-xs leading-5 text-slate-400">Cuando captures energía y variables relevantes del mismo periodo, aquí verás la tendencia del EnPI.</p>
                 </div>
               </div>
             )}
@@ -646,6 +909,10 @@ function EnPIWorkbench({
         </div>
       </Card>
 
+      {(enpi.numerator_type === 'measurement_point' || enpi.numerator_type === 'balance_sheet') && (
+        <ReferentialTrendPanel enpi={enpi} relevantVars={relevantVars} />
+      )}
+
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_340px]">
         <Card padding="sm" className="rounded-xl border-slate-200">
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -662,7 +929,7 @@ function EnPIWorkbench({
           </div>
           {variables.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-              Agrega variables como producción, temperatura, mezcla, humedad, turnos u horas de operación para explicar el rendimiento.
+              Agrega variables como volumen producido, temperatura, mezcla, humedad, turnos, ocupación, m2 u horas de operación para explicar el rendimiento.
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -755,19 +1022,31 @@ function EnPIForm({
   onCancel,
   utilityType,
   measurementPoints,
+  balanceSheets,
+  relevantVars,
+  enpiGroups,
+  initial,
 }: {
   onSave: (form: typeof EMPTY_ENPI) => void
   onCancel: () => void
   utilityType: string | null
   measurementPoints: MeasurementPoint[]
+  balanceSheets: BalanceSheetOption[]
+  relevantVars: RelevantVariableOption[]
+  enpiGroups: EnPIGroup[]
+  initial?: Partial<typeof EMPTY_ENPI>
 }) {
   const initialUtility = utilityType || 'electricity'
   const initialNumerator = getTariffUnits(initialUtility)[0] || 'kWh'
-  const [form, setForm] = useState({ ...EMPTY_ENPI, utility: initialUtility, numerator_unit: initialNumerator })
+  const [form, setForm] = useState({ ...EMPTY_ENPI, utility: initialUtility, numerator_unit: initialNumerator, ...initial })
   const set = (partial: Partial<typeof EMPTY_ENPI>) => setForm({ ...form, ...partial })
 
   const numeratorUnits = getTariffUnits(form.utility)
   const compatiblePoints = measurementPoints.filter((point) => point.utility === form.utility)
+
+  useEffect(() => {
+    setForm({ ...EMPTY_ENPI, utility: initialUtility, numerator_unit: initialNumerator, ...initial })
+  }, [initial, initialNumerator, initialUtility])
 
   useEffect(() => {
     const units = getTariffUnits(form.utility)
@@ -828,52 +1107,158 @@ function EnPIForm({
               <option value="monthly">Mes</option>
             </select>
           </LabeledField>
+          <LabeledField label="Grupo principal">
+            <select className={inputClass} value={form.primary_group_id} onChange={(event) => set({ primary_group_id: event.target.value })}>
+              <option value="">Sin grupo principal</option>
+              {enpiGroups.map((group) => (
+                <option key={group.id} value={group.id}>{group.name}</option>
+              ))}
+            </select>
+          </LabeledField>
           <LabeledField label="Descripción" className="md:col-span-2">
             <textarea
               className={`${inputClass} min-h-[72px] resize-none`}
               value={form.description}
               onChange={(event) => set({ description: event.target.value })}
-              placeholder="Ej. Evalúa la energía consumida por libra producida usando energía y producción del mismo periodo."
+              placeholder="Ej. Evalúa la energía consumida por libra producida usando energía y variable relevante del mismo periodo."
             />
           </LabeledField>
         </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
-        <div className="mb-4 flex items-center gap-2">
-          <Link2 size={15} className="text-brand-blue" />
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Paso 2 · Fórmula y fuentes de datos</p>
-        </div>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto_1fr]">
-          <TermEditor
-            title="Numerador energético"
-            term="numerator"
-            form={form}
-            setForm={set}
-            measurementPoints={compatiblePoints}
-            unitOptions={numeratorUnits.length > 0 ? numeratorUnits : ['kWh', 'MWh', 'GJ']}
-          />
-          <div className="grid place-items-center text-2xl font-black text-slate-300">/</div>
-          <TermEditor
-            title="Denominador operacional"
-            term="denominator"
-            form={form}
-            setForm={set}
-            measurementPoints={measurementPoints}
-            unitOptions={DRIVER_UNITS}
-          />
-        </div>
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-950 p-4 text-white">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resultado esperado</p>
-              <p className="mt-1 font-mono text-xl font-black">{form.numerator_unit}/{form.denominator_unit}</p>
-            </div>
-            <p className="max-w-md text-xs leading-5 text-slate-300">
-              La energía, producción y variables significativas deben capturarse para el mismo periodo: {translateFrequency(form.frequency).toLowerCase()}.
-            </p>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Link2 size={15} className="text-brand-blue" />
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Paso 2 · Fórmula y fuentes de datos</p>
+          </div>
+          <div className="flex items-center gap-1 rounded-xl border border-slate-200 p-0.5">
+            {(['formula', 'referential'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => set({ numerator_mode: mode })}
+                className={[
+                  'flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all cursor-pointer',
+                  form.numerator_mode === mode ? 'bg-slate-900 text-white shadow' : 'text-slate-500 hover:text-slate-700',
+                ].join(' ')}
+              >
+                {mode === 'formula' ? <><Calculator size={11} /> Fórmula</> : <><Database size={11} /> Referencial</>}
+              </button>
+            ))}
           </div>
         </div>
+
+        {form.numerator_mode === 'formula' ? (
+          <>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto_1fr]">
+              <TermEditor
+                title="Numerador energético"
+                term="numerator"
+                form={form}
+                setForm={set}
+                measurementPoints={compatiblePoints}
+                unitOptions={numeratorUnits.length > 0 ? numeratorUnits : ['kWh', 'MWh', 'GJ']}
+              />
+              <div className="grid place-items-center text-2xl font-black text-slate-300">/</div>
+              <TermEditor
+                title="Denominador operacional"
+                term="denominator"
+                form={form}
+                setForm={set}
+                measurementPoints={measurementPoints}
+                unitOptions={DRIVER_UNITS}
+              />
+            </div>
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-950 p-4 text-white">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resultado esperado</p>
+                  <p className="mt-1 font-mono text-xl font-black">{form.numerator_unit}/{form.denominator_unit}</p>
+                </div>
+                <p className="max-w-md text-xs leading-5 text-slate-300">
+                  La energía y las variables relevantes deben capturarse para el mismo periodo: {translateFrequency(form.frequency).toLowerCase()}.
+                </p>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">
+              El EnPI se calcula automáticamente leyendo medidores o balances existentes ÷ variable relevante — sin captura manual de resultados.
+            </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto_1fr]">
+              {/* Numerador referencial */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                <p className="text-xs font-bold text-slate-900">Numerador energético</p>
+                <LabeledField label="Tipo de fuente">
+                  <select className={inputClass} value={form.ref_numerator_type} onChange={(e) => set({ ref_numerator_type: e.target.value as typeof form.ref_numerator_type })}>
+                    <option value="measurement_point">Punto de medición (MP)</option>
+                    <option value="balance_sheet">Balance sheet</option>
+                  </select>
+                </LabeledField>
+                {form.ref_numerator_type === 'measurement_point' ? (
+                  <LabeledField label="Medidor">
+                    <select className={inputClass} value={form.ref_numerator_ref_id} onChange={(e) => set({ ref_numerator_ref_id: e.target.value })}>
+                      <option value="">Seleccionar medidor…</option>
+                      {compatiblePoints.map((p) => (
+                        <option key={p.id} value={p.id}>{p.tag} · {p.name} ({p.unit})</option>
+                      ))}
+                    </select>
+                  </LabeledField>
+                ) : (
+                  <>
+                    <LabeledField label="Balance sheet">
+                      <select className={inputClass} value={form.ref_numerator_ref_id} onChange={(e) => set({ ref_numerator_ref_id: e.target.value })}>
+                        <option value="">Seleccionar balance…</option>
+                        {balanceSheets.map((s) => (
+                          <option key={s.id} value={s.id}>{s.name} · {s.period_start.slice(0, 7)}</option>
+                        ))}
+                      </select>
+                    </LabeledField>
+                    <LabeledField label="Lado del balance">
+                      <select className={inputClass} value={form.ref_numerator_side} onChange={(e) => set({ ref_numerator_side: e.target.value as typeof form.ref_numerator_side })}>
+                        <option value="input">Entrada (kWh-eq)</option>
+                        <option value="output">Salida (kWh-eq)</option>
+                        <option value="net">Neto entrada − salida</option>
+                      </select>
+                    </LabeledField>
+                  </>
+                )}
+              </div>
+              <div className="grid place-items-center text-2xl font-black text-slate-300">/</div>
+              {/* Denominador referencial */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                <p className="text-xs font-bold text-slate-900">Variable base</p>
+                <LabeledField label="Variable relevante">
+                  <select className={inputClass} value={form.ref_denominator_ref_id} onChange={(e) => set({ ref_denominator_ref_id: e.target.value })}>
+                    <option value="">Seleccionar variable…</option>
+                    {relevantVars.map((v) => (
+                      <option key={v.id} value={v.id}>{v.name} ({v.unit})</option>
+                    ))}
+                  </select>
+                </LabeledField>
+                {relevantVars.find((v) => v.id === form.ref_denominator_ref_id) && (
+                  <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-2 py-1.5 text-[11px] text-emerald-700 flex items-center gap-1.5">
+                    <Scale size={11} />
+                    Unidad: {relevantVars.find((v) => v.id === form.ref_denominator_ref_id)?.unit}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-950 p-4 text-white">
+              <div className="flex items-center gap-3">
+                <Database size={16} className="text-blue-400 shrink-0" />
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Unidad resultante</p>
+                  <p className="mt-0.5 font-mono text-xl font-black">
+                    kWh-eq / {relevantVars.find((v) => v.id === form.ref_denominator_ref_id)?.unit ?? 'prod'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -1041,7 +1426,7 @@ function TargetForm({ enpi, onSave, onCancel }: {
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
-        Objetivo para <strong>{enpi.name}</strong>. Un valor menor suele indicar mejor desempeño cuando el EnPI es consumo por producción.
+        Objetivo para <strong>{enpi.name}</strong>. Un valor menor suele indicar mejor desempeño cuando el EnPI es consumo por unidad de actividad, producción, área u otro driver.
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <LabeledField label="Nombre" required className="sm:col-span-2">

@@ -21,7 +21,7 @@ import {
 } from '@/services/measurement-engine/unitCatalog'
 import {
   Plus, Pencil, Trash2, Save, X, Gauge, ChevronRight,
-  CheckCircle, AlertTriangle, Circle, Link, Zap,
+  CheckCircle, AlertTriangle, Circle, Link, Zap, Layers,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -30,8 +30,12 @@ interface MP {
   id: string
   tag: string
   name: string
-  target_type: string
-  target_id: string
+  target_type: string | null
+  target_id: string | null
+  asset_id?: string | null
+  scope_asset_id?: string | null
+  physical_meter_asset_id?: string | null
+  domains?: string[] | null
   utility: string
   measurement_type: string
   quantity: string
@@ -45,8 +49,18 @@ interface MP {
 interface TargetEntity {
   id: string
   label: string
-  type: 'area' | 'system' | 'node' | 'edge'
-  utility?: string
+  type: 'asset' | 'energy_group'
+  subtitle: string
+  utility?: string | null
+  nodeRole?: string | null
+  maintainableKind?: string | null
+}
+
+interface PhysicalMeter {
+  id: string
+  label: string
+  code: string | null
+  subtitle: string
 }
 
 interface Props { siteId: string; utilityType: string | null }
@@ -61,8 +75,10 @@ interface WizardForm {
   name: string
   utility: string
   // Step 2
-  target_type: 'area' | 'system' | 'node' | 'edge'
+  target_type: 'asset' | 'energy_group'
   target_id: string
+  physical_meter_asset_id: string
+  domains: string[]
   // Step 3
   measurement_type: string
   quantity: MeasurementQuantity
@@ -94,7 +110,8 @@ interface WizardForm {
 
 const DEFAULT_FORM: WizardForm = {
   tag: '', name: '', utility: 'electricity',
-  target_type: 'system', target_id: '',
+  target_type: 'asset', target_id: '', physical_meter_asset_id: '',
+  domains: ['energy'],
   measurement_type: 'accumulator',
   quantity: 'energy',
   unit: 'kWh',
@@ -108,6 +125,22 @@ const DEFAULT_FORM: WizardForm = {
   acc_allow_negative: false, acc_reset_detection: true,
   acc_rollover_enabled: false, acc_rollover_max: 999999,
 }
+
+const DOMAIN_OPTIONS = [
+  { id: 'energy', label: 'Energy' },
+  { id: 'maintenance_condition', label: 'Condición MTTO' },
+  { id: 'production', label: 'Producción' },
+  { id: 'quality', label: 'Calidad' },
+]
+
+const SOURCE_OPTIONS = [
+  { id: 'manual', label: SOURCE_TYPE_LABELS.manual ?? 'Manual', status: 'vigente' },
+  { id: 'file_import', label: SOURCE_TYPE_LABELS.file_import ?? 'File import', status: 'EN DESARROLLO' },
+  { id: 'api_pull', label: SOURCE_TYPE_LABELS.api_pull ?? 'API pull', status: 'EN DESARROLLO' },
+  { id: 'api_push', label: SOURCE_TYPE_LABELS.api_push ?? 'API push', status: 'EN DESARROLLO' },
+  { id: 'iot_db', label: SOURCE_TYPE_LABELS.iot_db ?? 'IoT DB', status: 'EN DESARROLLO' },
+  { id: 'calculated', label: SOURCE_TYPE_LABELS.calculated ?? 'Calculado', status: 'EN DESARROLLO' },
+]
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────
 
@@ -175,6 +208,58 @@ function buildAccConfig(form: WizardForm): Record<string, unknown> {
   }
 }
 
+async function upsertEnergyMeasurementSatellite(
+  measurementPointId: string,
+  siteId: string,
+  form: WizardForm,
+) {
+  await supabase
+    .from('energy_measurement_point_profiles')
+    .upsert({
+      measurement_point_id: measurementPointId,
+      energy_use_category: form.domains.includes('energy') ? 'energy' : 'other',
+      aggregation_method: form.measurement_type === 'accumulator' || form.measurement_type === 'counter' ? 'delta' : 'latest',
+      expected_frequency: form.manual_frequency || 'manual',
+      validation_profile: {
+        source_status: form.source_type === 'manual' ? 'active' : 'in_development',
+        manual_capture_active: form.source_type === 'manual',
+        future_source_requested: form.source_type !== 'manual' ? form.source_type : null,
+      },
+    })
+
+  await supabase
+    .from('energy_measurement_bindings')
+    .update({ active: false, is_primary: false })
+    .eq('measurement_point_id', measurementPointId)
+    .eq('is_primary', true)
+
+  const bindingPayload: Record<string, unknown> = form.target_type === 'asset'
+    ? {
+      site_id: siteId,
+      measurement_point_id: measurementPointId,
+      binding_type: 'asset',
+      asset_id: form.target_id,
+      energy_group_id: null,
+      role: 'indicator',
+      is_primary: true,
+      active: true,
+      properties: { source: 'measurement_points_wizard' },
+    }
+    : {
+      site_id: siteId,
+      measurement_point_id: measurementPointId,
+      binding_type: 'energy_group',
+      asset_id: null,
+      energy_group_id: form.target_id,
+      role: 'indicator',
+      is_primary: true,
+      active: true,
+      properties: { source: 'measurement_points_wizard' },
+    }
+
+  await supabase.from('energy_measurement_bindings').insert(bindingPayload)
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function MeasurementPointsView({ siteId, utilityType }: Props) {
@@ -187,6 +272,7 @@ export function MeasurementPointsView({ siteId, utilityType }: Props) {
   const [form, setForm] = useState<WizardForm>({ ...DEFAULT_FORM })
   const [saving, setSaving] = useState(false)
   const [targetEntities, setTargetEntities] = useState<TargetEntity[]>([])
+  const [physicalMeters, setPhysicalMeters] = useState<PhysicalMeter[]>([])
   const [tagCount, setTagCount] = useState(1)
   const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string | null }>({ open: false, id: null })
 
@@ -206,18 +292,74 @@ export function MeasurementPointsView({ siteId, utilityType }: Props) {
 
   useEffect(() => { load() }, [load])
 
-  // Load target entities (areas + systems for now)
+  // Load canonical scopes (Core assets + Energy groups) and physical meters.
   useEffect(() => {
     async function loadTargets() {
-      const [{ data: areas }, { data: systems }] = await Promise.all([
+      const [{ data: assets, error: assetsError }, { data: groups }, { data: areas }, { data: systems }] = await Promise.all([
+        supabase
+          .from('assets')
+          .select('id, name, code, node_type, node_role, maintainable_kind, status')
+          .eq('site_id', siteId)
+          .neq('status', 'decommissioned')
+          .order('name'),
+        supabase
+          .from('energy_groups')
+          .select('id, name, code, group_type, utility_type, active')
+          .eq('site_id', siteId)
+          .eq('active', true)
+          .order('name'),
         supabase.from('energy_areas').select('id, name').eq('site_id', siteId),
         supabase.from('utility_systems').select('id, name, utility_type').eq('site_id', siteId),
       ])
-      const entities: TargetEntity[] = [
-        ...(areas || []).map((a) => ({ id: a.id, label: a.name, type: 'area' as const })),
-        ...(systems || []).map((s) => ({ id: s.id, label: s.name, type: 'system' as const, utility: s.utility_type })),
-      ]
+
+      const coreAssets = assetsError ? [] : (assets || [])
+      const entities: TargetEntity[] = coreAssets.length > 0
+        ? [
+          ...coreAssets.map((asset) => ({
+            id: asset.id,
+            label: asset.code ? `${asset.code} · ${asset.name}` : asset.name,
+            type: 'asset' as const,
+            subtitle: `${asset.node_type} / ${asset.node_role}${asset.maintainable_kind ? ` / ${asset.maintainable_kind}` : ''}`,
+            nodeRole: asset.node_role,
+            maintainableKind: asset.maintainable_kind,
+          })),
+          ...((groups || []).map((group) => ({
+            id: group.id,
+            label: group.code ? `${group.code} · ${group.name}` : group.name,
+            type: 'energy_group' as const,
+            subtitle: `Energy group / ${group.group_type}`,
+            utility: group.utility_type,
+          }))),
+        ]
+        : [
+          ...((areas || []).map((a) => ({
+            id: a.id,
+            label: a.name,
+            type: 'asset' as const,
+            subtitle: 'Legacy area fallback',
+            nodeRole: 'grouping',
+          }))),
+          ...((systems || []).map((s) => ({
+            id: s.id,
+            label: s.name,
+            type: 'asset' as const,
+            subtitle: 'Legacy system fallback',
+            utility: s.utility_type,
+            nodeRole: 'grouping',
+          }))),
+        ]
+
+      const meters = coreAssets
+        .filter((asset) => asset.maintainable_kind === 'meter')
+        .map((asset) => ({
+          id: asset.id,
+          label: asset.name,
+          code: asset.code,
+          subtitle: `${asset.node_type} / medidor fisico mantenible`,
+        }))
+
       setTargetEntities(entities)
+      setPhysicalMeters(meters)
     }
     if (siteId) loadTargets()
   }, [siteId])
@@ -244,8 +386,10 @@ export function MeasurementPointsView({ siteId, utilityType }: Props) {
     const srcCfg = mp.source_config as Record<string, unknown>
     setForm({
       tag: mp.tag, name: mp.name, utility: mp.utility,
-      target_type: (mp.target_type as WizardForm['target_type']) || 'system',
-      target_id: mp.target_id === DUMMY_ID ? '' : mp.target_id,
+      target_type: mp.target_type === 'energy_group' ? 'energy_group' : 'asset',
+      target_id: (mp.scope_asset_id || mp.target_id) === DUMMY_ID ? '' : (mp.scope_asset_id || mp.target_id || ''),
+      physical_meter_asset_id: mp.physical_meter_asset_id || '',
+      domains: Array.isArray(mp.domains) && mp.domains.length > 0 ? mp.domains : ['energy'],
       measurement_type: mp.measurement_type,
       quantity: (mp.quantity as MeasurementQuantity) || 'energy',
       unit: mp.unit,
@@ -275,11 +419,16 @@ export function MeasurementPointsView({ siteId, utilityType }: Props) {
   async function handleSave() {
     if (!form.target_id) return
     setSaving(true)
+    const isAssetScope = form.target_type === 'asset'
     const payload = {
       tag: form.tag,
       name: form.name || form.tag,
       target_type: form.target_type,
       target_id: form.target_id,
+      asset_id: isAssetScope ? form.target_id : null,
+      scope_asset_id: isAssetScope ? form.target_id : null,
+      physical_meter_asset_id: form.physical_meter_asset_id || null,
+      domains: form.domains.length > 0 ? form.domains : ['energy'],
       utility: form.utility,
       measurement_type: form.measurement_type,
       quantity: form.quantity,
@@ -290,11 +439,27 @@ export function MeasurementPointsView({ siteId, utilityType }: Props) {
       updated_at: new Date().toISOString(),
     }
 
+    let measurementPointId = editingId
     if (editingId) {
       await supabase.from('measurement_points').update(payload).eq('id', editingId)
     } else {
-      await supabase.from('measurement_points').insert({ ...payload, site_id: siteId })
+      const { data, error: insertError } = await supabase
+        .from('measurement_points')
+        .insert({ ...payload, site_id: siteId })
+        .select('id')
+        .single()
+      if (insertError) {
+        setError(insertError.message)
+        setSaving(false)
+        return
+      }
+      measurementPointId = data?.id || null
     }
+
+    if (measurementPointId) {
+      await upsertEnergyMeasurementSatellite(measurementPointId, siteId, form)
+    }
+
     setSaving(false)
     setShowWizard(false)
     load()
@@ -413,6 +578,7 @@ export function MeasurementPointsView({ siteId, utilityType }: Props) {
           setForm={setForm}
           onStepChange={setWizardStep}
           targetEntities={targetEntities}
+          physicalMeters={physicalMeters}
           onSave={handleSave}
           onCancel={() => setShowWizard(false)}
           saving={saving}
@@ -438,13 +604,14 @@ export function MeasurementPointsView({ siteId, utilityType }: Props) {
 
 function MpWizard({
   step, form, setForm, onStepChange,
-  targetEntities, onSave, onCancel, saving, isEdit,
+  targetEntities, physicalMeters, onSave, onCancel, saving, isEdit,
 }: {
   step: number
   form: WizardForm
   setForm: (f: WizardForm) => void
   onStepChange: (s: number) => void
   targetEntities: TargetEntity[]
+  physicalMeters: PhysicalMeter[]
   onSave: () => void
   onCancel: () => void
   saving: boolean
@@ -485,10 +652,24 @@ function MpWizard({
 
   const filteredTargets = useMemo(() =>
     targetEntities.filter((t) => {
-      if (form.target_type === 'area') return t.type === 'area'
-      if (form.target_type === 'system') return t.type === 'system'
-      return true
+      if (t.type !== form.target_type) return false
+      return !t.utility || t.utility === form.utility
     }), [targetEntities, form.target_type])
+  const selectedTarget = useMemo(
+    () => targetEntities.find((target) => target.id === form.target_id),
+    [targetEntities, form.target_id],
+  )
+  const selectedPhysicalMeter = useMemo(
+    () => physicalMeters.find((meter) => meter.id === form.physical_meter_asset_id),
+    [physicalMeters, form.physical_meter_asset_id],
+  )
+
+  function toggleDomain(domain: string) {
+    const next = form.domains.includes(domain)
+      ? form.domains.filter((item) => item !== domain)
+      : [...form.domains, domain]
+    set({ domains: next.length > 0 ? next : ['energy'] })
+  }
 
   // ── Step indicator ────────────────────────────────────────────────────────
   return (
@@ -570,7 +751,7 @@ function MpWizard({
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Tipo de objetivo *</label>
               <div className="flex gap-2">
-                {(['area', 'system'] as const).map((t) => (
+                {(['asset', 'energy_group'] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => set({ target_type: t, target_id: '' })}
@@ -580,23 +761,22 @@ function MpWizard({
                         : 'border-border text-gray-600 hover:border-gray-300'
                     }`}
                   >
-                    {t === 'area' ? '📍 Área' : '🔧 Sistema de utility'}
+                    {t === 'asset' ? 'Asset Core/CMMS' : 'Energy group'}
                   </button>
                 ))}
               </div>
               <p className="text-[10px] text-gray-400 mt-1">
-                Los nodos de canvas (tipo node/edge) se vinculan desde el Mapa → Inspector.
+                El scope medido puede ser un activo/agrupador Core o un grupo Energy. Nodos y edges se vinculan desde Mapa.
               </p>
             </div>
 
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
-                {form.target_type === 'area' ? 'Selecciona el área' : 'Selecciona el sistema de utility'} *
+                {form.target_type === 'asset' ? 'Selecciona asset/agrupador Core' : 'Selecciona Energy group'} *
               </label>
               {filteredTargets.length === 0 ? (
                 <div className="py-6 text-center text-sm text-gray-400 border border-dashed border-gray-300 rounded-lg">
-                  No hay {form.target_type === 'area' ? 'áreas' : 'sistemas'} registrados para este sitio.
-                  <br />Crea uno en las tabs correspondientes del Modelo.
+                  No hay {form.target_type === 'asset' ? 'assets Core' : 'Energy groups'} disponibles para este sitio y utility.
                 </div>
               ) : (
                 <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
@@ -610,14 +790,18 @@ function MpWizard({
                           : 'border-border hover:border-gray-300 bg-white'
                       }`}
                     >
-                      <Link size={14} className={form.target_id === t.id ? 'text-brand-blue' : 'text-gray-400'} />
+                      {t.type === 'energy_group' ? (
+                        <Layers size={14} className={form.target_id === t.id ? 'text-brand-blue' : 'text-gray-400'} />
+                      ) : (
+                        <Link size={14} className={form.target_id === t.id ? 'text-brand-blue' : 'text-gray-400'} />
+                      )}
                       <div className="flex-1 min-w-0">
                         <p className={`text-sm font-medium ${form.target_id === t.id ? 'text-brand-blue' : 'text-gray-700'}`}>
                           {t.label}
                         </p>
-                        {t.utility && (
-                          <p className="text-[10px] text-gray-400">{UTILITY_LABELS[t.utility] ?? t.utility}</p>
-                        )}
+                        <p className="text-[10px] text-gray-400">
+                          {t.subtitle}{t.utility ? ` · ${UTILITY_LABELS[t.utility] ?? t.utility}` : ''}
+                        </p>
                       </div>
                       {form.target_id === t.id && <CheckCircle size={14} className="text-brand-blue shrink-0" />}
                     </button>
@@ -631,6 +815,46 @@ function MpWizard({
                 <AlertTriangle size={12} /> Debes seleccionar un objetivo real para este punto.
               </p>
             )}
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Medidor físico vinculado</label>
+              <select
+                value={form.physical_meter_asset_id}
+                onChange={(e) => set({ physical_meter_asset_id: e.target.value })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20 bg-white cursor-pointer"
+              >
+                <option value="">Sin medidor físico</option>
+                {physicalMeters.map((meter) => (
+                  <option key={meter.id} value={meter.id}>
+                    {meter.code ? `${meter.code} · ` : ''}{meter.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-gray-400 mt-1">
+                Opcional. Úsalo solo si existe un medidor mantenible en el Asset Registry.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-2">Dominios de uso</label>
+              <div className="grid grid-cols-2 gap-2">
+                {DOMAIN_OPTIONS.map((domain) => (
+                  <button
+                    key={domain.id}
+                    type="button"
+                    onClick={() => toggleDomain(domain.id)}
+                    className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+                      form.domains.includes(domain.id)
+                        ? 'border-brand-blue bg-brand-blue/5 text-brand-blue'
+                        : 'border-border bg-white text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    {domain.label}
+                    {form.domains.includes(domain.id) && <CheckCircle size={12} />}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
@@ -703,18 +927,28 @@ function MpWizard({
 
               {/* Source type selector — grid de tarjetas */}
               <div className="grid grid-cols-3 gap-1.5 mb-3">
-                {(Object.entries(SOURCE_TYPE_LABELS) as [string, string][]).map(([src, label]) => (
+                {SOURCE_OPTIONS.map(({ id: src, label, status }) => (
                   <button
                     key={src}
-                    onClick={() => set({ source_type: src })}
+                    onClick={() => {
+                      if (src === 'manual') set({ source_type: src })
+                    }}
+                    disabled={src !== 'manual'}
                     className={`flex flex-col items-start px-2.5 py-2 rounded-lg border text-left transition-colors cursor-pointer ${
                       form.source_type === src
                         ? 'bg-brand-blue/10 border-brand-blue text-brand-blue'
-                        : 'border-border text-gray-600 hover:border-gray-300 bg-white'
+                        : src === 'manual'
+                          ? 'border-border text-gray-600 hover:border-gray-300 bg-white'
+                          : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
                     }`}
                   >
                     <span className="text-base leading-none mb-0.5">{SOURCE_TYPE_ICONS[src]}</span>
                     <span className="text-[11px] font-medium leading-tight">{label}</span>
+                    {src !== 'manual' && (
+                      <span className="mt-1 rounded bg-amber-50 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-700">
+                        {status}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -950,14 +1184,21 @@ function MpWizard({
                 <Row label="Unidad" value={<span className="font-mono">{form.unit}</span>} />
                 <Row label="Fuente" value={SOURCE_TYPE_LABELS[form.source_type]} />
                 <Row
-                  label="Target"
-                  value={`${form.target_type}: ${form.target_id ? form.target_id.slice(0, 8) + '…' : '—'}`}
+                  label="Scope"
+                  value={selectedTarget ? selectedTarget.label : '—'}
                 />
+                <Row
+                  label="Medidor físico"
+                  value={selectedPhysicalMeter ? `${selectedPhysicalMeter.code ? `${selectedPhysicalMeter.code} · ` : ''}${selectedPhysicalMeter.label}` : 'Sin medidor físico'}
+                />
+                <Row label="Dominios" value={form.domains.join(', ')} />
               </div>
 
               {/* Status chips */}
               <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
-                <Chip ok={Boolean(form.target_id)} label="Target real vinculado" />
+                <Chip ok={Boolean(form.target_id)} label="Scope real vinculado" />
+                <Chip ok label={form.physical_meter_asset_id ? 'Medidor físico vinculado' : 'Sin medidor físico'} />
+                <Chip ok={form.source_type === 'manual'} label="Captura manual vigente" />
                 <Chip ok={unitCompatible} label="Unidad compatible" />
                 <Chip
                   ok={form.measurement_type !== 'accumulator' || form.acc_multiplier > 0}

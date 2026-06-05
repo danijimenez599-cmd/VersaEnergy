@@ -1,4 +1,11 @@
-import type { AccumulatorConfig } from '@/services/topology-engine/graphTypes'
+// AccumulatorConfig moved inline after topology-engine removal
+interface AccumulatorConfig {
+  rollover?: { enabled: boolean; maxValue: number }
+  multiplier: number
+  offset: number
+  allowNegativeDelta: boolean
+  resetDetection: boolean
+}
 
 export function calculateDelta(
   prev: number,

@@ -1,6 +1,7 @@
 # VersaEnergy — Referencia de estado actual
 
-> Ultima actualizacion: 2026-06-03 (post SCADA Fases 0-5 completadas).
+> Ultima actualizacion: 2026-06-05 (Core/CMMS E1-E12 implementado y E13
+> Estudios Workflow 2.0 definido como fase de diseno).
 >
 > Este documento describe lo ya construido, lo que funciona y las brechas
 > conocidas. Es la fuente de verdad para responder: que existe hoy.
@@ -67,10 +68,13 @@ Comportamiento:
 - Ficha de equipo con barra de lentes.
 - MeasurementPoints con wizard de 4 pasos (tag ISA-5.1, utility, vinculacion,
   magnitud/fuente).
-- Vista `assets_compat` para convergencia CMMS.
+- Lectura Core-first desde `assets`; `assets_compat` queda como fallback
+  temporal para compatibilidad legacy.
+- Compatibilidad Core/CMMS: `asset_registry_requests`,
+  `asset_registry_events`, perfiles Energy satelite y site scope.
 - Mantenimiento de medidores con estado de calibracion.
 
-### Mapa ✅ (SCADA Fases 0-5 completadas — 2026-06-03)
+### Mapa ✅ (SCADA + HD + E6/E6.5-data + E12)
 
 **Fases 0-2: Base arquitectural**
 - Canvas React Flow con paleta agrupada, inspector multitab, validaciones.
@@ -113,6 +117,42 @@ Comportamiento:
 - Idempotente: solo inserta nueva lectura si el valor cambio >0.01%.
 - Burbuja ISA muestra icono ⚙ para MPs calculados.
 
+**Topology Engine 2.0 / E6** ✅
+- Migracion `00030_e6_topology.sql` implementada.
+- Nodos con identidad tipada (`asset_id`, `energy_group_id`,
+  `energy_source_id` o virtual) y `identity_kind` generado.
+- Un solo `energy_role` canonico: source, distribution, conversion, storage,
+  load, junction, virtual e instrument.
+- `energy_sources` modela fuentes externas como entidad; el nodo solo la
+  referencia.
+- Compiler soporta subgrafos por utility, puertos de conversion, scope desde
+  ancla, closure de Energy group y cobertura de boundary.
+- Validaciones separadas `validateDraft` / `validateForPublish`.
+
+**Diagramas jerarquicos / E6.5** ✅
+- `child_block`, `port_in`, `port_out` conectan diagrama con arbol de activos.
+- Drill-down con breadcrumbs y sincronizacion arbol ↔ diagrama.
+- `child_block` soporta expansion/colapso visual.
+- `e65_data` carga summary transitorio desde Energy groups, bindings,
+  MeasurementPoints y lecturas reales de Supabase. No es mock, no se persiste y
+  no sustituye balances E7.
+
+**Diagram Workspace 2.0 / E12** ✅
+- `00035_e12_diagram_workspace.sql` agrega `diagram_type`, `view_preset`,
+  `workspace_notes`, `metadata` y scope ampliado a `energy_diagrams`.
+- `/diagrama` es el lente operativo principal: Workspace lateral, filtros por
+  estado/tipo, apertura de vistas existentes y creacion de diagramas sin salir
+  al mapa.
+- `/mapa` queda como editor completo: galeria, templates, palette, inspector,
+  validacion, versiones y publicacion.
+- Tipos canonicos: overview, utility, boundary, group, equipment, generated,
+  custom.
+- Lentes canonicos: macro, technical, balance, audit.
+- Lente Macro compacta `child_block` y equipos para bajar ruido visual; el
+  detalle sigue disponible con expansion/colapso y lente Tecnico.
+- Crear un diagrama crea una vista guardada; no duplica activos, medidores ni
+  MeasurementPoints.
+
 ### Medicion ✅
 - 4 tabs: Captura manual, Import CSV, Calidad, Validadas.
 - Auto-deteccion CSV, mapeo columnas, tracking batch.
@@ -120,10 +160,17 @@ Comportamiento:
 - Filtrado por activo seleccionado.
 
 ### Balances ✅
-- Wizard 3 pasos: Configurar → Revisar → Resultado.
-- Soporte de supuestos de simulacion.
-- CTA cruzado no-explicado → Acciones.
-- Trazabilidad de version de diagrama.
+- Balance sheets modernos con entradas/salidas por equipo y MeasurementPoint.
+- `balance-sheet-engine` calcula entrada, salida, no explicado, cobertura y
+  breakdown multi-utility desde `measurement_readings`.
+- Persistencia en `energy_balance_sheets`, `energy_balance_entries` y
+  `energy_balance_results`.
+- E7 oficial implementado: el cálculo principal exige topología publicada,
+  guarda `diagram_version_id`, versiones hijas, `coverage_breakdown`,
+  `topology_snapshot`, `findings`, `confidence_score` y marca resultados previos
+  como `superseded`.
+- Tab de variables relevantes con lecturas periodicas para EnPI/Estudios.
+- Balance legacy `energy_balances` permanece como compatibilidad.
 
 ### Desempeno ✅
 - EnPI con constructor visual de formula.
@@ -131,6 +178,42 @@ Comportamiento:
 - Targets con preview en tiempo real.
 - Graficos de tendencia por periodo.
 - Variables significativas (EnPI con vars).
+- Estudios se separa como modulo lateral propio (`/estudios`); Desempeno queda
+  como gobierno de EnPIs, baselines, targets y variables asociadas.
+- ES-1: `StudyLauncher` prueba preguntas de ingenieria usando
+  medidores/balances + variables relevantes.
+- ES-2: `src/services/energy-study-engine/` centraliza calculo de metricas
+  candidatas, cobertura, confianza, hallazgos y decisiones; React solo presenta
+  el workbench.
+- ES-3: `00023_energy_studies.sql` agrega persistencia real de estudios,
+  fuentes, modelos, hallazgos y decisiones con RLS; `StudyLauncher` puede
+  guardar estudios y listar los recientes.
+- ES-4/ES-8: comparacion de modelos candidatos y playbooks por tipo de estudio.
+- ES-5: estudios pueden abrir un borrador de EnPI referencial precargado.
+- ES-6: estudios pueden crear acciones/proyectos con `source_study_id`.
+- ES-7: estudios pueden crear evidencia SGEn como snapshot tecnico.
+- E8: estudios rankean variables relevantes, comparan ratio/banda/mejor
+  periodo/regresion simple/CUSUM/M&V guardian y pueden derivar a EnPI,
+  solicitud de medicion, accion rapida, proyecto con fases/tareas o evidencia
+  SGEn.
+- E9: acciones/proyectos tienen M&V formal, handoff Maint/CMMS y bitacora
+  auditada de ejecucion.
+
+### Estudios y auditoria Energetica ✅
+- Modulo lateral `/estudios` implementado como expediente guiado, no como tab
+  de Desempeno ni como carriles horizontales.
+- Inbox/lista de expedientes por sitio, flujo vertical, panel central por paso
+  y panel derecho de expediente vivo.
+- E13 implementado con `00037_e13_study_case_management.sql`:
+  - `energy_studies` extiende case management: `case_type`, prioridad,
+    vencimiento, suficiencia, decision final y cierre;
+  - `energy_study_activities` guarda actividades tecnicas tipo OT energetica;
+  - `energy_study_evidence` guarda adjuntos/referencias/evidencias;
+  - `energy_study_events` guarda bitacora append-only.
+- La decision final puede crear EnPI, accion rapida o proyecto real; otras
+  salidas quedan trazadas para conectarse a flujos especializados.
+- El laboratorio `StudyLauncher` permanece dentro del paso `Analisis`.
+- Seed real: expediente Nave A con 4 actividades, 3 evidencias y 4 eventos.
 
 ### Acciones ✅
 - **3 tabs operacionales:**
@@ -146,15 +229,24 @@ Comportamiento:
   - Tareas por fase con prioridad, responsable y fecha.
   - Panel M&V (medicion y verificacion): metodo, periodo, linea base M&V,
     ahorro reportado vs estimado.
+  - Panel Auditoria / CMMS: plan M&V formal, solicitud Maint/CMMS y eventos
+    auditados.
   - Evidencia de proyecto: snapshots, notas, documentos.
   - Presupuesto por fase y total.
+- **E9 ejecucion real en Supabase:**
+  - `energy_mv_plans` guarda planes M&V versionados.
+  - `energy_cmms_handoff_requests` guarda solicitudes Energy->CMMS y
+    feedback CMMS->Energy.
+  - `energy_improvement_events` guarda bitacora auditada.
+  - Seed demo incluye `VM-WO-2026-0007` para proyecto Nave A y
+    `VM-WO-2026-0012` como hallazgo Maint que abre accion Energy.
 - **Formulario completo (`ImprovementForm`):**
   - `work_type`: quick_action vs project.
   - Campos: titulo, descripcion, categoria, utility, prioridad, ahorro estimado
     (energia + costo), inversion, payback, responsable, fechas, metodo M&V.
   - Guardado a `energy_improvements` en Supabase.
 
-### SGEn (ISO 50001) ✅
+### SGEn ✅
 - **10 tabs operacionales:**
   - **Cockpit:** madurez del SGEn (score %), SEUs activos, objetivos activos,
     acciones abiertas, NC abiertas. Ciclo guiado de trabajo. "Proxima mejor
@@ -175,19 +267,21 @@ Comportamiento:
   - **Direccion:** workspace de revision por la direccion con entradas y
     decisiones con responsable y estado.
   - **Alcance:** definicion de limites del SGEn, utilities incluidos y versiones.
-  - **Legal:** aviso legal que el modulo no reemplaza ISO 50001.
+  - **Alcance del producto:** aviso de alcance y responsabilidades.
 - Evidence Snapshot transversal (boton en Cockpit).
-- No copia texto ISO.
+- No copia texto propietario ni menciona codigos normativos en UX/reportes.
 
-### Reportes ⚠️ (UI ready, exportacion pendiente)
+### Reportes ⚠️ (CSV operativo, PDF pendiente)
 - Builder interactivo funcional.
 - Tipos de reporte: mensual, balance, EnPI, acciones, SGEn.
-- Exportaciones PDF/CSV son mock — falta conectar `@react-pdf/renderer`.
+- CSV operativo para datos disponibles.
+- PDF pendiente de render real con `@react-pdf/renderer`.
 
-### Admin ⚠️ (UI ready, backend pendiente)
+### Admin ⚠️ (backend parcialmente conectado)
 - Layout 4 tabs: Sitios, Tarifas, Usuarios, Parametros.
 - Tablas de DB creadas en `00014_admin_settings.sql`.
-- UI tiene datos mock — falta conectar a Supabase JS.
+- Sitios y Tarifas/Factores leen/escriben Supabase.
+- Usuarios y Parametros siguen como base UI pendiente de persistencia completa.
 
 ## Servicios (engines puros sin dependencia React)
 
@@ -195,12 +289,14 @@ Comportamiento:
 |----------|-----------|--------|
 | Topology engine | `src/services/topology-engine/` | ✅ Operativo |
 | Balance engine | `src/services/balance-engine/` | ✅ Operativo |
+| Balance sheet engine | `src/services/balance-sheet-engine/` | ✅ Operativo |
 | Measurement engine | `src/services/measurement-engine/` | ✅ Operativo |
 | Calculated MPs engine | `src/services/measurement-engine/calculated.ts` | ✅ Nuevo (Fase 5) |
 | Last readings service | `src/services/measurement-engine/lastReadings.ts` | ✅ Operativo |
 | Cockpit KPIs | `src/services/cockpit.ts` | ✅ Operativo |
 | Improvement engine | `src/services/improvement-engine/` | ✅ Operativo |
 | SGEn engine | `src/services/sgen-engine/` | ✅ Operativo |
+| Energy study engine | `src/services/energy-study-engine/` | ✅ Operativo |
 | Asset tree | `src/services/asset-tree.ts` | ✅ Operativo |
 | Equipment specs | `src/services/equipmentSpecs.ts` | ✅ Operativo |
 | Diagram versions | `src/services/diagramVersions.ts` | ✅ Operativo |
@@ -230,13 +326,18 @@ Comportamiento:
 
 ## Base de datos
 
-- 21 migraciones incrementales en `supabase/migrations/` (00000-00020).
+- 25 migraciones incrementales en `supabase/migrations/` (00000-00024).
 - RLS habilitado en todas las tablas con `company_id`.
 - Helper `get_my_company_id()` y `get_my_role()` para policies.
 - Vista `assets_compat` para convergencia CMMS.
 - **`00019_source_type_realistic.sql`** — constraint `source_type` a 6 tipos.
 - **`00020_measurement_readings.sql`** — tabla `measurement_readings` usada por
   el mapa, inspector, calculated engine y todos los servicios modernos.
+- **`00021_balance_sheets.sql`** — balance sheets modernos y variables de
+  produccion.
+- **`00023_energy_studies.sql`** — estudios energeticos persistentes.
+- **`00024_energy_study_decision_links.sql`** — trazabilidad de estudios hacia
+  acciones y evidencia SGEn.
 - Detalle: ver `docs/DATABASE.md`.
 
 ## Seed de datos demo
@@ -248,9 +349,12 @@ Comportamiento:
   - Lecturas en `measurement_readings` (nueva) Y `energy_readings_raw` (legacy).
   - 4 diagramas completos con nodos, edges y versiones.
   - 4 balances (electricidad y vapor, enero 2025 y junio 2026).
-  - 4 EnPIs con baselines, targets y resultados de 6 meses.
-  - 4 acciones/proyectos con fases, tareas y M&V.
-  - Datos SGEn: alcance, SEUs, evidencias, mejoras verificadas.
+  - 3 balance sheets modernos con resultados preconstruidos.
+  - 4 EnPIs con baselines, targets y resultados de 18 meses.
+  - 5 acciones/proyectos con fases, tareas, M&V y trazabilidad a estudios.
+  - 3 estudios energeticos demo con fuentes, modelos, hallazgos y decisiones.
+  - Datos SGEn: alcance, SEUs, evidencias, mejoras verificadas y evidencia de
+    estudio.
 - Credenciales demo: `admin@demo.com` / `AdminDemo123!`
 
 ## Build
@@ -262,17 +366,17 @@ Comportamiento:
 
 | Brecha | Severidad | Donde |
 |--------|-----------|-------|
-| Admin UI no conectada a Supabase | Media | `src/modules/admin/` |
-| Reportes PDF/CSV son mock | Media | `src/modules/reportes/` |
+| Admin parcial: Usuarios/Parametros pendientes | Media | `src/modules/admin/` |
+| Reportes PDF pendiente | Media | `src/modules/reportes/` |
 | Convergencia CMMS: escrituras a tablas legacy | Baja | `src/services/asset-tree.ts` |
 | Code splitting para chunks > 500 kB | Baja | `vite.config.ts` |
 | evaluateCalculatedMPs no tiene scheduler automatico | Baja | `src/services/measurement-engine/calculated.ts` |
 
 ## Deuda tecnica documentada
 
-1. **Admin mock**: la UI existe pero los formularios no guardan a Supabase.
-   Esto se resuelve en MP-12.
-2. **Reportes mock**: la UI builder existe pero no genera PDF real con
+1. **Admin parcial**: Usuarios y Parametros requieren persistencia/autorizacion
+   completa. Esto se resuelve en MP-12.
+2. **Reportes PDF pendiente**: la UI builder existe pero no genera PDF real con
    `@react-pdf/renderer`. Esto se resuelve en MP-11.
 3. **Medidores PM mock**: la tab de mantenimiento muestra datos mock de
    calibracion y planes PM. Esto se resuelve cuando exista la integracion

@@ -104,8 +104,9 @@ Canonical source of truth:
 
 1. `AGENTS.md` for operating rules, architecture, commands and phase status.
 2. `docs/00_DOCUMENTATION_INDEX.md` for documentation priority and navigation.
-3. `docs/modules/<MODULE>.md` for per-module contracts (CMMS-quality docs).
-4. `docs/05_MASTER_IMPROVEMENT_PLAN.md` for future implementation phases.
+3. `docs/ENERGY_ENGINEERING_BLUEPRINT.md` for the Energy/CMMS shared-asset
+   engineering contract and phase memory.
+4. `docs/modules/<MODULE>.md` for per-module contracts (CMMS-quality docs).
 5. `docs/04_CURRENT_STATE_REFERENCE.md` for what exists, what works and known
    gaps.
 6. `docs/DATABASE.md` for tables, migrations and RLS.
@@ -137,8 +138,8 @@ src/
     desempeno/    # EnPI, baselines, targets, performance
     acciones/     # Savings actions, Kanban, projects, Gantt, M&V
     iso50001/     # SGEn workspace aligned with ISO 50001
-    reportes/     # PDF/CSV reports (UI ready, render pending)
-    admin/        # Administration, users, settings (UI ready, backend pending)
+    reportes/     # Reports (CSV operational, PDF render pending)
+    admin/        # Administration, sites/rates connected; users/settings pending
   store/          # Zustand stores (uiStore)
   services/       # Pure logic — NO React dependency
     asset-tree.ts           # Asset tree service (reads from assets_compat)
@@ -151,12 +152,11 @@ src/
     improvement-engine/     # Improvement scoring, triage
     sgen-engine/            # SGEn evidence and compliance logic
 supabase/
-  migrations/     # SQL migration files (21 files, 00000-00020)
+  migrations/     # SQL migration files; keep docs/DATABASE.md in sync
 docs/
   modules/        # Per-module documentation (CMMS-quality)
   DATABASE.md     # Table/migration/RLS reference
   VERIFY.md       # Verification guide by change type
-  MAPA_SCADA_PLAN.md  # Refactor SCADA Fases 0-5 (COMPLETO)
 ```
 
 ## Available Commands
@@ -177,16 +177,18 @@ Before editing, follow this flow:
 2. Convert the user's natural-language request into a brief technical task.
 3. Read `docs/00_DOCUMENTATION_INDEX.md`.
 4. Read `docs/modules/<MODULE>.md` for the affected module.
-5. For future product/UI/business work, read
-   `docs/04_CURRENT_STATE_REFERENCE.md` and
-   `docs/05_MASTER_IMPROVEMENT_PLAN.md`.
-6. Read `docs/01_PRODUCT_VISION.md` or `docs/02_TOPOLOGY_ENGINE.md` only when the
+5. For Energy/CMMS shared assets, topology, MeasurementPoints, balances,
+   Energy Studies, SGEn or major architecture, read
+   `docs/ENERGY_ENGINEERING_BLUEPRINT.md`.
+6. For current behavior, implemented flows and known gaps, read
+   `docs/04_CURRENT_STATE_REFERENCE.md`.
+7. Read `docs/01_PRODUCT_VISION.md` or `docs/02_TOPOLOGY_ENGINE.md` only when the
    change touches product direction, topology, graph semantics or utilities.
-7. Inspect only the source files needed for the task.
-8. If the change touches DB/RLS/schema, read `docs/DATABASE.md` and inspect the
+8. Inspect only the source files needed for the task.
+9. If the change touches DB/RLS/schema, read `docs/DATABASE.md` and inspect the
    relevant migration files in `supabase/migrations/`.
-9. Verify with `npm run build` for code changes.
-10. Update docs per `docs/VERIFY.md` when behavior, architecture, schema,
+10. Verify with `npm run build` for code changes.
+11. Update docs per `docs/VERIFY.md` when behavior, architecture, schema,
     phase status or guardrails change.
 
 Do not scan the repo randomly to "understand everything". Build a task-specific
@@ -198,7 +200,7 @@ context packet.
 |--------|-----------|--------|
 | Cockpit / KPIs | `docs/modules/INICIO.md`, `src/services/cockpit.ts` | `npm run build` |
 | Asset tree / Equipos | `docs/modules/EQUIPOS.md`, `src/services/asset-tree.ts` | `npm run build` |
-| Canvas / Mapa / Topology | `docs/modules/MAPA.md`, `docs/MAPA_SCADA_PLAN.md`, `docs/02_TOPOLOGY_ENGINE.md` | `npm run build` |
+| Canvas / Mapa / Topology | `docs/modules/MAPA.md`, `docs/ENERGY_ENGINEERING_BLUEPRINT.md`, `docs/02_TOPOLOGY_ENGINE.md` | `npm run build` |
 | Medicion / readings | `docs/modules/MEDICION.md` | `npm run build` |
 | Balances | `docs/modules/BALANCES.md` | `npm run build` |
 | EnPI / Desempeno | `docs/modules/DESEMPENO.md` | `npm run build` |
@@ -244,8 +246,9 @@ To control token cost, load only:
 - the technical brief;
 - this `AGENTS.md`;
 - `docs/00_DOCUMENTATION_INDEX.md`;
-- `docs/04_CURRENT_STATE_REFERENCE.md` and
-  `docs/05_MASTER_IMPROVEMENT_PLAN.md` for future work;
+- `docs/ENERGY_ENGINEERING_BLUEPRINT.md` for shared-asset, topology, balances,
+  SGEn or major architecture;
+- `docs/04_CURRENT_STATE_REFERENCE.md` for current behavior and known gaps;
 - the relevant `docs/modules/<MODULE>.md` for the affected module;
 - product/topology docs only when relevant;
 - necessary source files;
@@ -440,13 +443,12 @@ Key rule: **A MeasurementPoint is NOT a visual node**. It is a data entity that 
 Original build phases (0-11) have been completed and their historical documentation has been removed to keep the workspace clean. For current state, see
 `docs/04_CURRENT_STATE_REFERENCE.md`.
 
-All original phases 0-9 are complete. Phases 10-11 are subordinated to
-the master improvement plan.
+All original phases 0-11 are complete or superseded by the blueprint roadmap.
 
 ## Future Improvement Plan
 
-Use [docs/05_MASTER_IMPROVEMENT_PLAN.md](docs/05_MASTER_IMPROVEMENT_PLAN.md)
-for future implementation.
+Use [docs/ENERGY_ENGINEERING_BLUEPRINT.md](docs/ENERGY_ENGINEERING_BLUEPRINT.md)
+as the only live roadmap and planning document.
 
 ## Phase Status
 
@@ -465,9 +467,9 @@ for future implementation.
 | MP-08 | Oportunidades, triage y M&V | ✅ Complete |
 | MP-09 | Workspace de proyectos energéticos + Gantt | ✅ Complete |
 | MP-10 | SGEn operativo alineado con ISO 50001 | ✅ Complete |
-| MP-11 | Reportes y exportaciones | ⏳ UI ready, exportacion pendiente |
-| MP-12 | Administración y configuración energética | ⏳ UI ready, backend pendiente |
-| MP-13 | Demo dataset, QA y beta | ⏳ Dataset rico completado; QA pendiente |
+| MP-11 | Reportes y exportaciones | ⏳ CSV operativo; PDF pendiente |
+| MP-12 | Administración y configuración energética | ⏳ Sitios/tarifas conectados; usuarios/parametros pendientes |
+| MP-13 | Demo dataset, QA y beta | ⏳ Dataset rico + estudios completado; QA pendiente |
 
 ### Refactor MP-R (2026-06-02)
 
@@ -493,6 +495,18 @@ for future implementation.
 | SCADA-4 | Ingreso manual inline desde inspector | ✅ Complete |
 | SCADA-5 | MPs calculados (engine puro, measurement_readings) | ✅ Complete |
 
+### Diagramas Jerárquicos (2026-06-04)
+
+| Phase | Name | Status |
+|-------|------|--------|
+| HD-0 | Schema scope_type/scope_id + seed planta industrial completa | ✅ Complete |
+| HD-1 | ChildBlockNode + PortNode + loadDiagramByScope + Explorador en /mapa | ✅ Complete |
+| HD-2 | Ruta /diagrama + DiagramaLens en asset detail | ✅ Complete |
+| HD-3 | Drill-down con breadcrumb + sincronización árbol ↔ diagrama | ✅ Complete |
+| HD-4 | Generador de esqueleto automático desde árbol (generateSkeleton) | ✅ Complete |
+| HD-5 | Semáforo en vivo en child_blocks (banda lateral + badge tiempo + dot) | ✅ Complete |
+| HD-6 | Sincronización bidireccional árbol ↔ diagrama (icono + highlight) | ✅ Complete |
+
 ## Lightweight Plan Improvements
 
 Keep these improvements small and practical:
@@ -500,11 +514,11 @@ Keep these improvements small and practical:
 1. Treat the current backend/domain base as a foundation, not something to
    rewrite casually.
 2. Keep `README.md` as the human handoff and `AGENTS.md` as the AI handoff.
-3. When a master-plan phase becomes large, split delivery into "service logic
-   first" and "UI wiring second", but keep the same MP phase as the source of
+3. When a blueprint phase becomes large, split delivery into "service logic
+   first" and "UI wiring second", but keep the blueprint phase as the source of
    truth.
 4. Avoid old mock-first prompts. This project is already Supabase-first.
-5. Do not create competing roadmap documents; update the master plan or current
+5. Do not create competing roadmap documents; update the blueprint or current
    state reference.
 
 ## Visual Design Tokens

@@ -9,20 +9,24 @@ import {
   BarChart2,
   CalendarClock,
   CheckCircle2,
+  ClipboardCheck,
   FileUp,
   Gauge,
+  History,
   Plus,
+  Send,
   Target,
   TrendingDown,
   TrendingUp,
   Users,
+  Wrench,
 } from 'lucide-react'
 import { GanttChart } from '../components/GanttChart'
 import { TaskForm } from '../components/TaskForm'
 import type { TaskFormData } from '../components/TaskForm'
-import type { EnergyImprovement, EnergyProjectPhase, EnergyProjectTask } from '../types'
+import type { EnergyCmmsHandoffRequest, EnergyImprovement, EnergyImprovementEvent, EnergyMvPlan, EnergyProjectPhase, EnergyProjectTask } from '../types'
 import { STATUS_LABELS, STATUS_COLORS } from '../types'
-import { calculateProgress, calculatePhaseProgress } from '@/services/improvement-engine'
+import { calculateProgress, calculatePhaseProgress, createCmmsHandoffRequest, createMvPlan, loadExecutionLedger } from '@/services/improvement-engine'
 
 interface Props {
   item: EnergyImprovement
@@ -35,6 +39,7 @@ const TABS = [
   { id: 'overview', label: 'Resumen' },
   { id: 'gantt',    label: 'Plan de Trabajo' },
   { id: 'm_and_v',  label: 'M&V (Monitoreo)' },
+  { id: 'audit',    label: 'Auditoría / CMMS' },
   { id: 'closeout', label: 'Cierre' },
 ]
 
@@ -45,6 +50,11 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
   const [tasks,  setTasks]  = useState<EnergyProjectTask[]>([])
   const [evidenceCount, setEvidenceCount] = useState(0)
   const [enpiName, setEnpiName] = useState<string | null>(null)
+  const [mvPlans, setMvPlans] = useState<EnergyMvPlan[]>([])
+  const [handoffs, setHandoffs] = useState<EnergyCmmsHandoffRequest[]>([])
+  const [events, setEvents] = useState<EnergyImprovementEvent[]>([])
+  const [ledgerLoading, setLedgerLoading] = useState(false)
+  const [executionAction, setExecutionAction] = useState<'mv' | 'cmms' | null>(null)
   const [activeTab, setActiveTab] = useState('gantt')
   const [closeoutForm, setCloseoutForm] = useState({
     actual_energy_savings: item.actual_energy_savings?.toString() || '',
@@ -78,6 +88,10 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
     } else {
       setEnpiName(null)
     }
+  }, [item.id])
+
+  useEffect(() => {
+    refreshExecutionLedger()
   }, [item.id])
 
   // ── Phase helpers ──────────────────────────────────────────────────────────
@@ -168,6 +182,40 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
     setSavingCloseout(false)
   }
 
+  async function refreshExecutionLedger() {
+    setLedgerLoading(true)
+    try {
+      const ledger = await loadExecutionLedger(item.id)
+      setMvPlans(ledger.mvPlans)
+      setHandoffs(ledger.handoffs)
+      setEvents(ledger.events)
+    } catch (error) {
+      console.error('Failed to load E9 execution ledger', error)
+    } finally {
+      setLedgerLoading(false)
+    }
+  }
+
+  async function handleCreateMvPlan() {
+    setExecutionAction('mv')
+    try {
+      await createMvPlan({ improvement: item })
+      await refreshExecutionLedger()
+    } finally {
+      setExecutionAction(null)
+    }
+  }
+
+  async function handleSendToCmms() {
+    setExecutionAction('cmms')
+    try {
+      await createCmmsHandoffRequest({ improvement: item })
+      await refreshExecutionLedger()
+    } finally {
+      setExecutionAction(null)
+    }
+  }
+
   const overallProgress = calculateProgress(phases)
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -175,6 +223,8 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
   const completedTasks = tasks.filter((task) => task.status === 'completed').length
   const phaseBudget = phases.reduce((sum, phase) => sum + Number(phase.budget || 0), 0)
   const budget = phaseBudget || Number(item.estimated_investment || 0)
+  const latestMvPlan = mvPlans[0]
+  const latestHandoff = handoffs[0]
 
   return (
     <div className="space-y-4">
@@ -214,6 +264,7 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
         <SignalCard icon={<CheckCircle2 size={14} />} label="Tareas" value={`${completedTasks}/${tasks.length}`} />
         <SignalCard icon={<BarChart2 size={14} />} label="M&V" value={item.measurement_verification_method || 'Pendiente'} />
         <SignalCard icon={<CalendarClock size={14} />} label="Monitoreo" value={item.monitoring_end ? `hasta ${new Date(item.monitoring_end).toLocaleDateString()}` : 'Por definir'} />
+        <SignalCard icon={<Wrench size={14} />} label="CMMS" value={latestHandoff ? latestHandoff.status : (item.cmms_handoff_status || 'not_required')} />
       </div>
 
       {/* Tabs */}
@@ -323,6 +374,98 @@ export function ImprovementProjectWorkspace({ item, onBack }: Props) {
             Agrega el primer registro posterior a la implementación para iniciar el tracking.
           </div>
         </Card>
+      )}
+
+      {/* ── Tab: Auditoría / CMMS ───────────────────────────────────── */}
+      {activeTab === 'audit' && (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <Card padding="md" className="xl:col-span-1">
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                <ClipboardCheck size={15} className="text-brand-blue" />
+                Plan M&V
+              </h3>
+              <Badge color={latestMvPlan ? 'green' : 'gray'} size="sm">{latestMvPlan?.status || 'pendiente'}</Badge>
+            </div>
+            {latestMvPlan ? (
+              <div className="space-y-2 text-sm">
+                <InfoRow label="Versión" value={`v${latestMvPlan.version}`} />
+                <InfoRow label="Método" value={latestMvPlan.method} />
+                <InfoRow label="Ahorro esperado" value={`${Number(latestMvPlan.expected_savings || 0).toLocaleString()} ${latestMvPlan.expected_savings_unit || ''}`} green />
+                <InfoRow label="Fuente baseline" value={latestMvPlan.baseline_source_type || 'manual'} />
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                  {latestMvPlan.acceptance_criteria || 'Criterio de aceptación pendiente.'}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs leading-5 text-slate-500">
+                  Define baseline, método, ventana de verificación y criterio de aceptación antes de cerrar ahorros.
+                </p>
+                <Button size="sm" leftIcon={<Plus size={13} />} onClick={handleCreateMvPlan} loading={executionAction === 'mv'}>
+                  Crear plan M&V
+                </Button>
+              </div>
+            )}
+          </Card>
+
+          <Card padding="md" className="xl:col-span-1">
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                <Wrench size={15} className="text-emerald-600" />
+                Handoff Maint/CMMS
+              </h3>
+              <Badge color={latestHandoff ? 'blue' : 'gray'} size="sm">{latestHandoff?.status || 'sin solicitud'}</Badge>
+            </div>
+            {latestHandoff ? (
+              <div className="space-y-2 text-sm">
+                <InfoRow label="Dirección" value={latestHandoff.request_direction} />
+                <InfoRow label="Tipo" value={latestHandoff.request_type} />
+                <InfoRow label="Prioridad" value={latestHandoff.maintenance_priority} />
+                <InfoRow label="OT CMMS" value={latestHandoff.cmms_work_order_id || 'Pendiente'} />
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-xs leading-5 text-emerald-700">
+                  {latestHandoff.energy_rationale || latestHandoff.description || 'Solicitud enviada a mantenimiento.'}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs leading-5 text-slate-500">
+                  Energy registra la solicitud. Maint/CMMS decide activo mantenible, prioridad, OT y cierre técnico.
+                </p>
+                <Button size="sm" leftIcon={<Send size={13} />} onClick={handleSendToCmms} loading={executionAction === 'cmms'}>
+                  Enviar a Maint/CMMS
+                </Button>
+              </div>
+            )}
+          </Card>
+
+          <Card padding="md" className="xl:col-span-1">
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                <History size={15} className="text-slate-500" />
+                Bitácora auditada
+              </h3>
+              <Badge color="gray" size="sm">{events.length}</Badge>
+            </div>
+            {ledgerLoading ? (
+              <p className="text-xs text-slate-400">Cargando bitácora...</p>
+            ) : events.length > 0 ? (
+              <div className="space-y-3">
+                {events.slice(0, 6).map((event) => (
+                  <div key={event.id} className="border-l-2 border-slate-200 pl-3">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">{eventLabel(event.event_type)}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">{event.notes || 'Evento registrado.'}</p>
+                    <p className="mt-1 text-[10px] font-medium text-slate-400">{new Date(event.created_at).toLocaleString()}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs leading-5 text-slate-500">
+                Sin eventos E9 registrados. Crear un plan M&V o enviar a CMMS iniciará la bitácora.
+              </p>
+            )}
+          </Card>
+        </div>
       )}
 
       {/* ── Tab: Cierre ─────────────────────────────────────────────── */}
@@ -449,4 +592,28 @@ function defaultMonitoringEnd() {
   const d = new Date()
   d.setDate(d.getDate() + 30)
   return d.toISOString().slice(0, 10)
+}
+
+function eventLabel(type: EnergyImprovementEvent['event_type']) {
+  const labels: Record<EnergyImprovementEvent['event_type'], string> = {
+    created_from_study: 'Creada desde estudio',
+    created_manually: 'Creada manualmente',
+    status_changed: 'Cambio de estado',
+    mv_plan_defined: 'Plan M&V definido',
+    mv_plan_approved: 'Plan M&V aprobado',
+    mv_started: 'M&V iniciado',
+    mv_result_recorded: 'Resultado M&V',
+    sent_to_cmms: 'Solicitud enviada',
+    cmms_request_accepted: 'Solicitud aceptada',
+    cmms_request_rejected: 'Solicitud rechazada',
+    cmms_work_order_created: 'OT creada',
+    cmms_work_order_closed: 'OT cerrada',
+    cmms_feedback_received: 'Feedback CMMS',
+    energy_followup_required: 'Seguimiento Energy',
+    evidence_added: 'Evidencia agregada',
+    closed_with_savings: 'Cierre con ahorro',
+    closed_without_savings: 'Cierre sin ahorro',
+    audit_reviewed: 'Auditoría revisada',
+  }
+  return labels[type]
 }

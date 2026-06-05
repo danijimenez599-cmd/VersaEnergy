@@ -12,6 +12,7 @@ import {
   Shield,
   FileText,
   Settings,
+  SearchCheck,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
@@ -29,19 +30,20 @@ const MODULES = [
   { id: 'resumen', label: 'Inicio', path: '/resumen', icon: <LayoutDashboard size={18} /> },
   { id: 'medicion', label: 'Medición', path: '/medicion', icon: <Gauge size={18} /> },
   { id: 'balances', label: 'Balances', path: '/balances', icon: <Scale size={18} /> },
-  { id: 'mapa', label: 'Mapa Energy', path: '/mapa', icon: <Network size={18} /> },
+  { id: 'mapa', label: 'Diagramas', path: '/mapa', icon: <Network size={18} /> },
   { id: 'equipos', label: 'Equipos y Activos', path: '/equipos', icon: <Database size={18} /> },
   { id: 'desempeno', label: 'Desempeño', path: '/desempeno', icon: <TrendingUp size={18} /> },
+  { id: 'estudios', label: 'Estudios y auditoria Energetica', path: '/estudios', icon: <SearchCheck size={18} /> },
   { id: 'acciones', label: 'Acciones / Proyectos', path: '/acciones', icon: <Zap size={18} /> },
-  { id: 'iso50001', label: 'SGEn', path: '/iso50001', icon: <Shield size={18} /> },
+  { id: 'sgen', label: 'SGEn', path: '/sgen', icon: <Shield size={18} /> },
   { id: 'reportes', label: 'Reportes', path: '/reportes', icon: <FileText size={18} /> },
   { id: 'admin', label: 'Administración', path: '/admin', icon: <Settings size={18} /> },
 ] as const
 
 const NAV_GROUPS = [
   { label: 'Monitoreo Diario', ids: ['resumen', 'medicion', 'balances'] },
-  { label: 'Ingeniería de Planta', ids: ['mapa', 'equipos', 'desempeno'] },
-  { label: 'Mejora Continua', ids: ['acciones', 'iso50001'] },
+  { label: 'Ingeniería de Planta', ids: ['mapa', 'equipos', 'desempeno', 'estudios'] },
+  { label: 'Mejora Continua', ids: ['acciones', 'sgen'] },
   { label: 'Control y Admin', ids: ['reportes', 'admin'] },
 ] as const
 
@@ -186,6 +188,7 @@ export function AppShell() {
                 {group.modules.map((mod) => {
                   const isActive =
                     location.pathname.startsWith(mod.path) ||
+                    (mod.id === 'mapa' && location.pathname.startsWith('/mapa')) ||
                     (mod.id === 'resumen' && location.pathname === '/')
 
                   return (

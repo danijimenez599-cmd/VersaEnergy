@@ -254,7 +254,7 @@ Ejemplos:
 - desviación,
 - uso significativo de energía,
 - acción de ahorro,
-- evidencia ISO,
+- evidencia SGEn,
 - hallazgo de mantenimiento.
 
 ---
@@ -583,7 +583,7 @@ Debe permitir ver y editar:
 
 El versionado es obligatorio.
 
-Motivo: si el mapa cambia hoy, no se deben alterar balances históricos ni evidencias ISO.
+Motivo: si el mapa cambia hoy, no se deben alterar balances históricos ni evidencias SGEn.
 
 Estados sugeridos:
 

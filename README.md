@@ -94,9 +94,9 @@ npm run preview
 |----------|---------|
 | [AGENTS.md](AGENTS.md) | Canonical AI agent instructions and architecture |
 | [docs/00_DOCUMENTATION_INDEX.md](docs/00_DOCUMENTATION_INDEX.md) | Documentation map and priority |
+| [docs/ENERGY_ENGINEERING_BLUEPRINT.md](docs/ENERGY_ENGINEERING_BLUEPRINT.md) | Only live roadmap and engineering blueprint |
 | [docs/modules/](docs/modules/) | Per-module documentation (CMMS-quality) |
 | [docs/04_CURRENT_STATE_REFERENCE.md](docs/04_CURRENT_STATE_REFERENCE.md) | What exists, what works, known gaps |
-| [docs/05_MASTER_IMPROVEMENT_PLAN.md](docs/05_MASTER_IMPROVEMENT_PLAN.md) | Improvement plan for future work |
 | [docs/DATABASE.md](docs/DATABASE.md) | Tables, migrations and RLS reference |
 | [docs/VERIFY.md](docs/VERIFY.md) | Verification guide by change type |
 | [docs/01_PRODUCT_VISION.md](docs/01_PRODUCT_VISION.md) | Product vision |
@@ -105,11 +105,12 @@ npm run preview
 If docs conflict, use this priority:
 
 1. `AGENTS.md`
-2. `docs/modules/<MODULE>.md`
-3. `docs/05_MASTER_IMPROVEMENT_PLAN.md`
-4. `docs/04_CURRENT_STATE_REFERENCE.md`
-5. `docs/DATABASE.md`
-6. product/topology docs
+2. `docs/00_DOCUMENTATION_INDEX.md`
+3. `docs/ENERGY_ENGINEERING_BLUEPRINT.md`
+4. `docs/modules/<MODULE>.md`
+5. `docs/04_CURRENT_STATE_REFERENCE.md`
+6. `docs/DATABASE.md`
+7. product/topology docs
 
 ## Hard Rules
 

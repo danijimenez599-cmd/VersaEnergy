@@ -50,6 +50,7 @@ interface Props {
 }
 
 type DetailTab = 'info' | 'specs' | 'meters' | 'map' | 'cmms'
+type DetailTabConfig = { id: DetailTab; label: string; icon: ReactNode }
 
 const TYPE_LABELS: Record<EnergyAssetNodeType, string> = {
   plant: 'Planta', area: 'Área', system: 'Sistema', equipment: 'Equipo',
@@ -65,6 +66,19 @@ const READINESS_LABEL: Record<CmmsReadiness, string> = {
 
 const KIND_LABELS: Record<EnergyAssetCreateKind, string> = {
   area: 'Área', system: 'Sistema', equipment: 'Equipo', meter: 'Medidor',
+}
+
+const NODE_ROLE_LABELS: Record<string, string> = {
+  grouping: 'Agrupador',
+  maintainable: 'Mantenible',
+}
+
+const MAINTAINABLE_KIND_LABELS: Record<string, string> = {
+  equipment: 'Equipo',
+  meter: 'Medidor',
+  instrument: 'Instrumento',
+  infrastructure: 'Infraestructura',
+  facility: 'Instalacion',
 }
 
 const EQUIPMENT_TYPE_OPTIONS: [string, string][] = [
@@ -146,6 +160,7 @@ export function PlantAssetTreeView({ siteId, utilityType }: Props) {
   const [tree, setTree] = useState<EnergyAssetTreeResult | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // diagramScopeIds removed — diagram layer no longer exists
   const [formKind, setFormKind] = useState<EnergyAssetCreateKind | null>(null)
   const [formParent, setFormParent] = useState<EnergyAssetTreeNode | null>(null)
   const [form, setForm] = useState<AssetFormState>(() => createDefaultForm(utilityType))
@@ -163,6 +178,7 @@ export function PlantAssetTreeView({ siteId, utilityType }: Props) {
   }, [siteId, utilityType])
 
   useEffect(() => { refresh() }, [refresh])
+
 
   // Select root automatically on load if none is selected
   useEffect(() => {
@@ -214,6 +230,10 @@ export function PlantAssetTreeView({ siteId, utilityType }: Props) {
 
   async function handleDelete(node: EnergyAssetTreeNode) {
     try {
+      if (node.source === 'core') {
+        console.warn('Core assets are governed by the shared registry and cannot be deleted from Energy.')
+        return
+      }
       if (node.type === 'equipment') {
         await supabase.from('energy_equipment').delete().eq('id', node.sourceId)
       } else if (node.type === 'system') {
@@ -315,6 +335,13 @@ function NodeDetail({
   const [measurementPoints, setMeasurementPoints] = useState<LinkedMeasurementPoint[]>([])
   const [mapNodes, setMapNodes] = useState<LinkedMapNode[]>([])
   const [externalSources, setExternalSources] = useState<ExternalSource[]>([])
+  const tabs = useMemo(() => getDetailTabs(node), [node])
+
+  useEffect(() => {
+    if (!tabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab(tabs[0]?.id ?? 'info')
+    }
+  }, [activeTab, tabs])
 
   useEffect(() => {
     let cancelled = false
@@ -323,7 +350,7 @@ function NodeDetail({
         ? supabase
           .from('energy_sources')
           .select('id,name,source_type,utility_type,description,is_active')
-          .eq('site_id', node.sourceId)
+          .eq('site_id', node.siteId)
           .eq('is_active', true)
           .order('name')
         : Promise.resolve({ data: [] as ExternalSource[], error: null })
@@ -368,14 +395,6 @@ function NodeDetail({
     return list
   }, [node, tree])
 
-  const tabs: Array<{ id: DetailTab; label: string; icon: ReactNode }> = [
-    { id: 'info',  label: 'Información',          icon: <Wrench size={12} /> },
-    { id: 'specs', label: 'Especificaciones',      icon: <Zap size={12} /> },
-    { id: 'meters',label: 'Medidores',             icon: <Gauge size={12} /> },
-    { id: 'map',   label: 'Mapa Energy',           icon: <Map size={12} /> },
-    { id: 'cmms',  label: 'CMMS',                  icon: <ShieldCheck size={12} /> },
-  ]
-
   return (
     <Card padding="none" className="overflow-hidden bg-white border border-slate-200 rounded-2xl shadow-sm">
       {/* CMMS-style header context block */}
@@ -416,6 +435,21 @@ function NodeDetail({
               <Badge variant="brand" className="text-[9px] px-2 py-0.5">
                 {TYPE_LABELS[node.type]}
               </Badge>
+              {node.nodeRole && (
+                <Badge variant="neutral" className="text-[9px] px-2 py-0.5">
+                  {NODE_ROLE_LABELS[node.nodeRole] || node.nodeRole}
+                </Badge>
+              )}
+              {node.maintainableKind && (
+                <Badge variant={node.maintainableKind === 'meter' ? 'info' : 'neutral'} className="text-[9px] px-2 py-0.5">
+                  {MAINTAINABLE_KIND_LABELS[node.maintainableKind] || node.maintainableKind}
+                </Badge>
+              )}
+              {node.isMeasurementAsset && (
+                <Badge variant="brand" className="text-[9px] px-2 py-0.5">
+                  Medicion
+                </Badge>
+              )}
               <Badge variant={READINESS_COLOR[node.cmmsReadiness]} className="text-[9px] px-2 py-0.5">
                 {READINESS_LABEL[node.cmmsReadiness]}
               </Badge>
@@ -483,6 +517,26 @@ function NodeDetail({
       </div>
     </Card>
   )
+}
+
+function getDetailTabs(node: EnergyAssetTreeNode): DetailTabConfig[] {
+  const tabs: DetailTabConfig[] = [
+    { id: 'info', label: 'Información', icon: <Wrench size={12} /> },
+  ]
+
+  if (node.nodeRole === 'maintainable') {
+    tabs.push({ id: 'specs', label: 'Especificaciones', icon: <Zap size={12} /> })
+  }
+
+  tabs.push({
+    id: 'meters',
+    label: node.isMeasurementAsset ? 'Medición' : 'Medidores',
+    icon: <Gauge size={12} />,
+  })
+  tabs.push({ id: 'map', label: 'Mapa Energy', icon: <Map size={12} /> })
+  tabs.push({ id: 'cmms', label: 'Registry', icon: <ShieldCheck size={12} /> })
+
+  return tabs
 }
 
 function InfoTab({

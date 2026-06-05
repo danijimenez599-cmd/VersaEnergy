@@ -141,7 +141,7 @@ export function ImprovementForm({ siteId, item, onClose, onSave }: Props) {
                 <option value="efficiency">Eficiencia</option><option value="leakage">Fuga</option>
                 <option value="maintenance">Mantenimiento</option><option value="controls">Controles</option>
                 <option value="measurement">Medición</option><option value="investment">Inversión</option>
-                <option value="behavioral">Conductual</option><option value="iso">ISO</option>
+                <option value="behavioral">Conductual</option><option value="iso">Gestión energética</option>
               </select>
             </div>
           </div>

@@ -9,7 +9,7 @@ No debe ser solamente un dashboard de electricidad. Debe ser una herramienta par
 La idea central es:
 
 ```txt
-VersaEnergy = Mapa vivo de energía y utilities + Medición + Balance + Desempeño + Acciones + SGEn alineado con ISO 50001
+VersaEnergy = Mapa vivo de energía y utilities + Medición + Balance + Desempeño + Acciones + SGEn profesional
 ```
 
 ## Alcance de utilities
@@ -99,7 +99,9 @@ La app debe ayudar a responder:
 
 ### 2. Operación antes que documentación
 
-El SGEn alineado con ISO 50001 debe sentirse como una consecuencia de operar bien la energía y los utilities. La evidencia debe nacer de diagramas, mediciones, balances, acciones, objetivos y revisiones.
+El SGEn debe sentirse como una consecuencia de operar bien la energía y los
+utilities. La evidencia debe nacer de diagramas, mediciones, balances, acciones,
+objetivos y revisiones, no de textos decorativos.
 
 ### 3. Mismo ADN que VersaMaint
 
@@ -113,14 +115,15 @@ VersaEnergy debe verse y sentirse como parte de la familia Versa:
 - trazabilidad,
 - claridad para usuarios de planta y gerencia.
 
-## Referencia normativa
+## Gestion energetica profesional
 
-La base normativa de referencia será **ISO 50001:2018**, considerando también
-la enmienda **ISO 50001:2018/Amd 1:2024 — Climate action changes**.
+La app debe operar un Sistema de Gestion de la Energia con estructura seria,
+trazable y defendible por evidencia. La compatibilidad se logra por dominios de
+trabajo, datos y controles, no por mencionar estandares ni copiar textos
+propietarios.
 
-La app no debe copiar texto del estándar ni presentarse como sustituto de la
-norma oficial. Debe operar un Sistema de Gestión de la Energía (SGEn) alineado
-con ISO 50001, usando lenguaje propio de VersaEnergy y funciones prácticas:
+El lenguaje visible debe ser propio de VersaEnergy y de un profesional de
+gestion energetica:
 
 - alcance energético,
 - política energética,
@@ -137,11 +140,10 @@ con ISO 50001, usando lenguaje propio de VersaEnergy y funciones prácticas:
 
 Aunque el sistema cubra múltiples utilities, su estructura debe servir para demostrar gestión del desempeño energético, eficiencia, uso y consumo de energía en el sentido amplio del sistema de gestión.
 
-VersaEnergy no debe prometer certificación ISO, aprobación por ISO ni uso del
-logo ISO. La promesa correcta es preparación operativa, trazabilidad y cobertura
-del SGEn para apoyar auditorías internas, revisión gerencial y procesos de
-certificación cuando el cliente los gestione con sus asesores u organismo
-correspondiente.
+VersaEnergy no debe prometer certificaciones, aprobaciones externas ni uso de
+sellos de terceros. La promesa correcta es preparacion operativa, trazabilidad,
+evidencia y cobertura profesional para apoyar auditorias internas, revision
+ejecutiva y mejora continua.
 
 ## Estilo visual
 
@@ -217,12 +219,12 @@ proyectos de mejora. Las acciones simples se gestionan con responsable, ahorro,
 evidencia y estado. Las iniciativas grandes se gestionan como proyectos con
 fases, tareas, recursos, inversión, avance, verificación de ahorro y cierre.
 
-### 8. SGEn alineado con ISO 50001
+### 8. SGEn profesional
 
 Workspace para alcance, política propia, revisión energética, usos
 significativos, objetivos, evidencias, auditorías internas, revisión gerencial y
-mejora continua. Debe evitar texto propietario del estándar y usar lenguaje
-original del producto.
+mejora continua. Debe evitar texto propietario, referencias normativas visibles
+y usar lenguaje original del producto.
 
 ### 9. Reportes
 
@@ -246,7 +248,7 @@ VersaEnergy será valioso si permite a un usuario:
 7. Detectar consumo no explicado, fugas o pérdidas.
 8. Crear una acción rápida o proyecto de mejora.
 9. Medir desempeño con EnPI.
-10. Generar evidencia para el SGEn alineado con ISO 50001.
+10. Generar evidencia para el SGEn profesional.
 11. Conectar hallazgos con mantenimiento.
 
 ## Frase guía

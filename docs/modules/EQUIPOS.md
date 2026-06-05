@@ -33,14 +33,26 @@ operativos funcionan como lentes del activo seleccionado.
 ## Modelo/Tablas
 
 - `sites` — sedes.
-- `energy_areas` — areas de planta.
-- `utility_systems` — sistemas por utility.
-- `energy_equipment` — equipos (incluye medidores con `equipment_type='meter'`).
+- `assets` — base Core/CMMS para agrupadores, mantenibles y medidores fisicos.
+- `energy_asset_profiles` — capa satelite Energy por activo Core.
+- `energy_groups` / `energy_group_members` — agrupadores energeticos propios de
+  Energy, independientes del arbol CMMS cuando haga falta.
+- `energy_measurement_point_profiles` / `energy_measurement_bindings` —
+  semantica y vinculacion energetica de MeasurementPoints.
+- `energy_areas` — areas legacy de planta, fallback temporal.
+- `utility_systems` — sistemas legacy por utility, fallback temporal.
+- `energy_equipment` — equipos legacy, fallback temporal.
 - `energy_sources` — fuentes de utility.
-- `measurement_points` — puntos de medicion (enlazados a equipos via
-  `meter_equipment_id`).
-- `assets_compat` — vista SQL UNION ALL que unifica las tablas anteriores con
-  el shape de `assets` del CMMS, para la convergencia futura.
+- `measurement_points` — puntos de medicion compartidos; pueden tener scope en
+  asset Core o Energy group y medidor fisico opcional via
+  `physical_meter_asset_id`.
+- `asset_registry_requests` — solicitudes hacia Maint cuando ambos productos
+  estan activos en la sede. Maint/Core decide con
+  `fn_approve_asset_registry_request_tx` o
+  `fn_reject_asset_registry_request_tx`.
+- `asset_registry_events` — historial comun de solicitudes, decisiones,
+  adopciones, merges y eventos de medidor/acumulador.
+- `assets_compat` — vista SQL de compatibilidad; no es contrato futuro.
 
 Migraciones relevantes:
 - `00004_model.sql` — modelo base.
@@ -49,29 +61,53 @@ Migraciones relevantes:
 
 ## Flujo actual
 
-1. `loadEnergyAssetTree()` en `asset-tree.ts` lee de `assets_compat` y compone
-   arbol.
-2. `<AssetTree>` renderiza el arbol con busqueda, filtro utility,
-   expand/collapse, menu contextual.
+1. `loadEnergyAssetTree()` en `asset-tree.ts` lee primero `assets` Core y
+   compone el arbol con `energy_asset_profiles`; usa `assets_compat` solo como
+   fallback temporal si el ambiente todavia no tiene Core.
+2. `<AssetTree>` renderiza el arbol con busqueda, filtro utility, filtros por
+   rol (`Todos`, `Grupos`, `Equipos`, `Med.`), expand/collapse y menu
+   contextual.
 3. Al seleccionar un nodo, `AssetDetail` muestra ficha con barra de lentes.
-4. Lentes disponibles varian por tipo de activo: Medicion, Balance, Desempeno,
-   Acciones, Mapa, Mantenimiento.
-5. Crear medidor desde arbol crea `energy_equipment` + `measurement_points`
-   enlazados.
+4. Lentes disponibles varian por `node_role` y `maintainable_kind`:
+   agrupadores muestran informacion, medicion, mapa y registro; mantenibles
+   agregan especificaciones; medidores fisicos conservan cualidades de equipo
+   mantenible y priorizan el lente de medicion.
+5. Crear desde arbol revisa `fn_site_product_mode(site_id)`: si la sede esta
+   `energy_only`, crea en `assets` Core y `energy_asset_profiles`; si Maint
+   gobierna, crea `asset_registry_requests` para que CMMS apruebe, rechace,
+   adopte, fusione o actualice.
 6. Wizard de MeasurementPoint de 4 pasos: Utility -> Tipo/Cantidad ->
    Unidad/Config -> Vinculacion.
 
+La deduplicacion no es flujo normal cuando Maint y Energy estan activos en la
+misma sede, porque Energy no crea activos fisicos maestros en ese modo. Solo se
+usa para adopciones posteriores, imports o fusiones administrativas.
+
 ## Invariantes
 
-- Jerarquia: planta -> area -> sistema -> equipo. `component` no forma parte
-  del arbol Energy.
-- Un medidor fisico es un equipo con `equipment_type='meter'`.
+- Jerarquia visual actual: planta -> area/scope -> sistema -> equipo, derivada
+  de `node_type/node_role/maintainable_kind` Core.
+- VersaEnergy es multitenant igual que VersaMaint: el arbol, perfiles,
+  MeasurementPoints, solicitudes y eventos siempre deben quedar filtrados por
+  sede.
+- El seed global de `assets` lo gobierna CMMS/Core. Energy puede sembrar
+  perfiles, groups, bindings, topologias y excepciones encima.
+- Los agrupadores Core/CMMS se importan como scopes disponibles, pero Energy no
+  los mueve para cambiar la jerarquia fisica. La reorganizacion energetica se
+  hace con `energy_groups`, topology y diagramas.
+- La lectura/escritura de `assets`, perfiles Energy, MeasurementPoints,
+  solicitudes y eventos debe respetar `fn_user_can_access_site`.
+- Un medidor fisico es un activo mantenible Core con
+  `maintainable_kind='meter'`.
 - Un MeasurementPoint es una entidad de datos, no un nodo visual.
+- El detalle completo del contrato compartido esta en
+  `docs/modules/CORE_ASSET_REGISTRY.md`.
 - No se permiten MeasurementPoints con `target_id` dummy.
 - Tag se auto-genera si se deja vacio.
 - Unidad/magnitud/utility se validan con `unitCatalog.ts`.
-- El arbol usa `assets_compat` como unica fuente de lectura.
-- Escrituras siguen yendo a tablas legacy hasta el cut-over de datos.
+- El arbol no debe volver a depender de `asset_type` como contrato.
+- Escrituras fisicas van a Core si Energy esta solo o a solicitudes si Maint
+  esta activo.
 
 ## Permisos
 

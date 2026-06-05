@@ -2,7 +2,30 @@ import { useState, useMemo } from 'react'
 import { Card } from '@/shared/Card'
 import { FormField } from '@/shared/FormField'
 import { UNIT_CATALOG, QUANTITY_LABELS, getAllUnitsFromCatalog, type MeasurementQuantity } from '@/services/measurement-engine/unitCatalog'
-import { convertUnits, getAllConversions } from '@/services/topology-engine/unitConversion'
+// Simple unit conversion table (moved inline after topology-engine removal)
+const CONVERSION_TABLE: { fromUnit: string; toUnit: string; factor: number; utility?: string }[] = [
+  { fromUnit: 'kWh', toUnit: 'MWh', factor: 0.001 },
+  { fromUnit: 'MWh', toUnit: 'kWh', factor: 1000 },
+  { fromUnit: 'kWh', toUnit: 'GJ', factor: 0.0036 },
+  { fromUnit: 'GJ', toUnit: 'kWh', factor: 277.78 },
+  { fromUnit: 'kWh', toUnit: 'MJ', factor: 3.6 },
+  { fromUnit: 'MJ', toUnit: 'kWh', factor: 0.2778 },
+  { fromUnit: 'm3', toUnit: 'L', factor: 1000 },
+  { fromUnit: 'L', toUnit: 'm3', factor: 0.001 },
+  { fromUnit: 'kg', toUnit: 'lb', factor: 2.2046 },
+  { fromUnit: 'lb', toUnit: 'kg', factor: 0.4536 },
+  { fromUnit: 't/h', toUnit: 'kg/h', factor: 1000 },
+  { fromUnit: 'kg/h', toUnit: 't/h', factor: 0.001 },
+  { fromUnit: 'Nm3', toUnit: 'm3', factor: 1 },
+  { fromUnit: 'TR', toUnit: 'kW', factor: 3.517 },
+  { fromUnit: 'kW', toUnit: 'TR', factor: 0.2843 },
+]
+function convertUnits(value: number, fromUnit: string, toUnit: string, _utility?: string): number | null {
+  if (fromUnit === toUnit) return value
+  const c = CONVERSION_TABLE.find(r => r.fromUnit === fromUnit && r.toUnit === toUnit)
+  return c ? value * c.factor : null
+}
+function getAllConversions() { return CONVERSION_TABLE }
 import { getUtilityLabel, utilityOptions } from '@/shared/OperationalContext'
 import { Calculator, CheckCircle2, AlertTriangle, List, ArrowRightLeft } from 'lucide-react'
 
@@ -123,20 +146,20 @@ export function UnitsManagerView() {
             </div>
           </div>
 
-          {conversionResult && (
+          {conversionResult != null && (
             <div className="mt-4 p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
               <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Resultado Calculado</p>
               <div className="flex items-baseline gap-1">
                 <span className="text-xl font-mono font-black text-slate-900">
-                  {Number(conversionResult.result).toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                  {Number(conversionResult).toLocaleString(undefined, { maximumFractionDigits: 6 })}
                 </span>
                 <span className="text-sm font-mono font-bold text-slate-500 uppercase">{toUnit}</span>
               </div>
               <div className="flex items-center gap-1.5 pt-1 text-[11px] font-medium">
-                {conversionResult.isEstimated ? (
+                {false ? (
                   <>
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                    <span className="text-amber-700">Conversión Estimada (Cruce de utility / PCI)</span>
+                    <span className="text-amber-700">Conversión Estimada</span>
                   </>
                 ) : fromUnit === toUnit ? (
                   <>

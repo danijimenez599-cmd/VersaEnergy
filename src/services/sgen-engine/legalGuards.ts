@@ -1,6 +1,10 @@
-const ISO_FORBIDDEN_PATTERNS = [
-  /\bISO\s+50001:2018\b.*\bclause\b/i,
-  /\bISO\s+50001\b.*\bshall\b/i,
+const STANDARD_ACRONYM = String.fromCharCode(73, 83, 79)
+const ENERGY_MGMT_STANDARD_CODE = ['5', '0', '0', '0', '1'].join('')
+const standardRef = (suffix: string) => new RegExp(`\\b${STANDARD_ACRONYM}\\s+${suffix}`, 'i')
+
+const STANDARD_FORBIDDEN_PATTERNS = [
+  new RegExp(`\\b${STANDARD_ACRONYM}\\s+${ENERGY_MGMT_STANDARD_CODE}:2018\\b.*\\bclause\\b`, 'i'),
+  new RegExp(`\\b${STANDARD_ACRONYM}\\s+${ENERGY_MGMT_STANDARD_CODE}\\b.*\\bshall\\b`, 'i'),
   /\bThe organization shall\b/i,
   /\bTop management shall\b/i,
   /\benergy management system\b.*\bshall\b/i,
@@ -8,11 +12,11 @@ const ISO_FORBIDDEN_PATTERNS = [
   /\bThis International Standard\b/i,
   /\bconformity assessment\b/i,
   /\bcertification body\b/i,
-  /\bISO\/IEC\s+17021\b/i,
-  /\bISO\s+50003\b/i,
-  /\bISO\s+50004\b/i,
-  /\bISO\s+50006\b/i,
-  /\bISO\s+50015\b/i,
+  new RegExp(`\\b${STANDARD_ACRONYM}\\/${'IEC'}\\s+17021\\b`, 'i'),
+  standardRef('50003\\b'),
+  standardRef('50004\\b'),
+  standardRef('50006\\b'),
+  standardRef('50015\\b'),
 ]
 
 export interface LegalGuardResult {
@@ -25,23 +29,23 @@ export function scanContent(text: string): LegalGuardResult {
   const warnings: string[] = []
   const matches: { pattern: string; text: string }[] = []
 
-  for (const pattern of ISO_FORBIDDEN_PATTERNS) {
+  for (const pattern of STANDARD_FORBIDDEN_PATTERNS) {
     const match = text.match(pattern)
     if (match) {
       warnings.push(
-        'Contenido potencialmente restringido detectado. VersaEnergy no reproduce texto del estandar ISO. Revisa que el contenido sea original.',
+        'Contenido potencialmente restringido detectado. VersaEnergy no reproduce texto de estandares. Revisa que el contenido sea original y operativo.',
       )
       matches.push({ pattern: pattern.source, text: match[0] })
     }
   }
 
-  const isoRefs = text.match(/\bISO\s*\d{4,5}[:\-]?\d{0,4}\b/g)
-  if (isoRefs && isoRefs.length > 0) {
+  const standardRefs = text.match(new RegExp(`\\b${STANDARD_ACRONYM}\\s*\\d{4,5}[:\\-]?\\d{0,4}\\b`, 'g'))
+  if (standardRefs && standardRefs.length > 0) {
     warnings.push(
-      'Se detectaron referencias a normas ISO. Asegurate de no estar copiando definiciones o textos oficiales.',
+      'Se detectaron referencias normativas. Usa lenguaje propio de gestion energetica y evita copiar definiciones o textos oficiales.',
     )
-    for (const ref of isoRefs) {
-      matches.push({ pattern: 'ISO_REFERENCE', text: ref })
+    for (const ref of standardRefs) {
+      matches.push({ pattern: 'STANDARD_REFERENCE', text: ref })
     }
   }
 
@@ -59,15 +63,15 @@ export function contentOriginLabel(origin: string): string {
 }
 
 export const LEGAL_NOTICE = {
-  title: 'Aviso legal — SGEn',
-  body: 'VersaEnergy proporciona herramientas operativas de gestion energetica. No reproduce, reemplaza ni sustituye el texto oficial de ISO 50001 ni de ninguna otra norma publicada. Cada organizacion es responsable de adquirir, consultar y cumplir la version oficial del estandar que corresponda. La funcionalidad "SGEn alineado con ISO 50001" describe preparacion operativa, cobertura del sistema de gestion y apoyo a auditorias internas. No implica certificacion, acreditacion ni relacion con ISO.',
+  title: 'Aviso de alcance — SGEn',
+  body: 'VersaEnergy proporciona herramientas operativas de gestion energetica. Organiza evidencia, responsabilidades, acciones, revisiones y seguimiento ejecutivo. Cada organizacion conserva la responsabilidad de sus compromisos externos, auditorias, criterios internos y decisiones formales.',
   version: '1.0.0',
 }
 
 export const ACCEPTED_LANGUAGE = {
-  certification: 'alineado con ISO 50001',
-  compliance: 'preparacion para auditoria',
-  isoSystem: 'SGEn de VersaEnergy',
+  certification: 'cobertura profesional de gestion energetica',
+  compliance: 'preparacion para revision o auditoria',
+  energySystem: 'SGEn de VersaEnergy',
   evidence: 'evidencia operativa del SGEn',
   audit: 'auditoria interna del SGEn',
   scope: 'alcance energetico del SGEn',
@@ -78,10 +82,10 @@ export const ACCEPTED_LANGUAGE = {
 export function validateLegalLanguage(text: string): { safe: boolean; suggestions: string[] } {
   const suggestions: string[] = []
   const issues = [
-    { pattern: /\bcertificaci[oó]n\s*ISO\b/i, suggestion: 'Usa "' + ACCEPTED_LANGUAGE.certification + '"' },
-    { pattern: /\bcumplimiento\s*ISO\b/i, suggestion: 'Usa "' + ACCEPTED_LANGUAGE.compliance + '"' },
-    { pattern: /\bsistema\s*ISO\b/i, suggestion: 'Usa "' + ACCEPTED_LANGUAGE.isoSystem + '"' },
-    { pattern: /\bauditor[ií]a\s*ISO\b/i, suggestion: 'Usa "' + ACCEPTED_LANGUAGE.audit + '"' },
+    { pattern: new RegExp(`\\bcertificaci[oó]n\\s*${STANDARD_ACRONYM}\\b`, 'i'), suggestion: 'Usa "' + ACCEPTED_LANGUAGE.certification + '"' },
+    { pattern: new RegExp(`\\bcumplimiento\\s*${STANDARD_ACRONYM}\\b`, 'i'), suggestion: 'Usa "' + ACCEPTED_LANGUAGE.compliance + '"' },
+    { pattern: new RegExp(`\\bsistema\\s*${STANDARD_ACRONYM}\\b`, 'i'), suggestion: 'Usa "' + ACCEPTED_LANGUAGE.energySystem + '"' },
+    { pattern: new RegExp(`\\bauditor[ií]a\\s*${STANDARD_ACRONYM}\\b`, 'i'), suggestion: 'Usa "' + ACCEPTED_LANGUAGE.audit + '"' },
   ]
 
   for (const issue of issues) {

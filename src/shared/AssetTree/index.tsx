@@ -3,7 +3,8 @@ import React, {
 } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Search, X, ChevronRight, MoreHorizontal, Plus, Trash2, Gauge,
+  Search, X, ChevronRight, MoreHorizontal, Plus, Trash2, Gauge, Network,
+  Layers, Wrench,
 } from 'lucide-react'
 import {
   type EnergyAssetTreeNode,
@@ -52,6 +53,27 @@ function collectSearchExpansion(
   return false
 }
 
+type RoleFilter = 'all' | 'grouping' | 'maintainable' | 'meter'
+
+function matchesRoleFilter(node: EnergyAssetTreeNode, filter: RoleFilter): boolean {
+  if (filter === 'all') return true
+  if (filter === 'meter') return node.maintainableKind === 'meter' || node.isMeasurementAsset
+  return node.nodeRole === filter
+}
+
+function collectRoleExpansion(
+  node: EnergyAssetTreeNode,
+  matchIds: Set<string>,
+  acc: Set<string>,
+): boolean {
+  const childMatches = node.children.some((child) => collectRoleExpansion(child, matchIds, acc))
+  if (matchIds.has(node.id) || childMatches) {
+    acc.add(node.id)
+    return true
+  }
+  return false
+}
+
 // ── Tree item (memoized) ─────────────────────────────────────────────────────
 // Props all primitives/stables so React.memo shallow compare works.
 
@@ -68,8 +90,10 @@ interface TreeItemProps {
   activeMenuId: string | null
   readOnly: boolean
   utilityFilter: string
+  roleFilter: RoleFilter
   searchQuery: string
   searchMatchIds: Set<string>
+  roleMatchIds: Set<string>
   toggleExpand: (id: string) => void
   onSelect: (id: string, node: EnergyAssetTreeNode) => void
   onNewChild?: (kind: EnergyAssetCreateKind, parent: EnergyAssetTreeNode) => void
@@ -80,7 +104,8 @@ interface TreeItemProps {
 const AssetTreeItemImpl: React.FC<TreeItemProps> = ({
   node, depth, isExpanded, isSelected, isMenuOpen, isSearchMatch,
   expanded, forceExpand, selectedId, activeMenuId,
-  readOnly, utilityFilter, searchQuery, searchMatchIds,
+  readOnly, utilityFilter, roleFilter, searchQuery, searchMatchIds,
+  roleMatchIds,
   toggleExpand, onSelect, onNewChild, onDelete, setActiveMenuId,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null)
@@ -88,15 +113,16 @@ const AssetTreeItemImpl: React.FC<TreeItemProps> = ({
   const allowedKinds = getAllowedCreateKinds(node.type as EnergyAssetNodeType)
   const firstKind = allowedKinds[0]
 
-  // Hide equipment that don't match utility filter
-  if (
+  const hiddenByUtility = (
     utilityFilter !== 'all' &&
     node.type === 'equipment' &&
     node.utility && node.utility !== utilityFilter
-  ) return null
+  )
+
+  const hiddenByRole = roleFilter !== 'all' && !roleMatchIds.has(node.id)
 
   // Hide nodes that don't match search (keep ancestors of matches)
-  if (searchQuery && !searchMatchIds.has(node.id) && !isSearchMatch) return null
+  const hiddenBySearch = Boolean(searchQuery && !searchMatchIds.has(node.id) && !isSearchMatch)
 
   useEffect(() => {
     if (!isMenuOpen) return
@@ -108,6 +134,8 @@ const AssetTreeItemImpl: React.FC<TreeItemProps> = ({
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [isMenuOpen, setActiveMenuId])
+
+  if (hiddenByUtility || hiddenByRole || hiddenBySearch) return null
 
   return (
     <div className="select-none">
@@ -260,9 +288,11 @@ const AssetTreeItemImpl: React.FC<TreeItemProps> = ({
                 activeMenuId={activeMenuId}
                 readOnly={readOnly}
                 utilityFilter={utilityFilter}
+                roleFilter={roleFilter}
                 searchQuery={searchQuery}
                 searchMatchIds={searchMatchIds}
-                toggleExpand={toggleExpand}
+                roleMatchIds={roleMatchIds}
+                  toggleExpand={toggleExpand}
                 onSelect={onSelect}
                 onNewChild={onNewChild}
                 onDelete={onDelete}
@@ -299,7 +329,9 @@ const AssetTreeItem = React.memo(AssetTreeItemImpl, (prev, next) =>
   prev.forceExpand === next.forceExpand &&
   prev.readOnly === next.readOnly &&
   prev.utilityFilter === next.utilityFilter &&
+  prev.roleFilter === next.roleFilter &&
   prev.searchQuery === next.searchQuery &&
+  prev.roleMatchIds === next.roleMatchIds &&
   !hasExpansionChangeInSubtree(next.node, prev.expanded, next.expanded) &&
   prev.toggleExpand === next.toggleExpand &&
   prev.onSelect === next.onSelect &&
@@ -328,6 +360,7 @@ export function AssetTree({
   const [expanded, setExpanded] = useState<Set<string>>(loadExpandedFromStorage)
   const [query, setQuery] = useState('')
   const [utilityFilter, setUtilityFilter] = useState('all')
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null)
   const initDone = useRef(false)
 
@@ -360,6 +393,17 @@ export function AssetTree({
     return { searchMatchIds: matchIds, expandForSearch: expand }
   }, [root, query, isSearching])
 
+  const { roleMatchIds, expandForRoleFilter } = useMemo(() => {
+    if (roleFilter === 'all') return { roleMatchIds: new Set<string>(), expandForRoleFilter: new Set<string>() }
+    const matchIds = new Set<string>()
+    flattenNode(root).forEach((node) => {
+      if (matchesRoleFilter(node, roleFilter)) matchIds.add(node.id)
+    })
+    const expand = new Set<string>()
+    if (matchIds.size > 0) collectRoleExpansion(root, matchIds, expand)
+    return { roleMatchIds: matchIds, expandForRoleFilter: expand }
+  }, [root, roleFilter])
+
   const toggleExpand = useCallback((id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev)
@@ -373,6 +417,12 @@ export function AssetTree({
   const resultCount = useMemo(
     () => isSearching ? searchMatchIds.size : null,
     [searchMatchIds, isSearching],
+  )
+
+  const roleResultCount = roleFilter === 'all' ? null : roleMatchIds.size
+  const visibleRoleMatchIds = useMemo(
+    () => roleFilter === 'all' ? new Set([root.id]) : roleMatchIds,
+    [roleFilter, root.id, roleMatchIds],
   )
 
   // Count total non-plant nodes for footer
@@ -398,6 +448,30 @@ export function AssetTree({
               <option key={u.value} value={u.value}>{u.label}</option>
             ))}
           </select>
+        </div>
+
+        <div className="grid grid-cols-4 gap-1 rounded-lg bg-slate-100 p-1">
+          {([
+            ['all', 'Todos', Layers],
+            ['grouping', 'Grupos', Network],
+            ['maintainable', 'Equipos', Wrench],
+            ['meter', 'Med.', Gauge],
+          ] as const).map(([value, label, Icon]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setRoleFilter(value)}
+              className={cn(
+                'flex h-7 items-center justify-center gap-1 rounded-md text-[10px] font-bold transition-colors',
+                roleFilter === value
+                  ? 'bg-white text-[--color-brand] shadow-sm'
+                  : 'text-slate-500 hover:bg-white/70 hover:text-slate-800',
+              )}
+            >
+              <Icon size={11} />
+              <span>{label}</span>
+            </button>
+          ))}
         </div>
 
         {/* Search */}
@@ -436,18 +510,24 @@ export function AssetTree({
             <AssetTreeItem
               node={root}
               depth={0}
-              isExpanded={isSearching ? expandForSearch.has(root.id) : expanded.has(root.id)}
+              isExpanded={isSearching
+                ? expandForSearch.has(root.id)
+                : roleFilter !== 'all'
+                  ? expandForRoleFilter.has(root.id)
+                  : expanded.has(root.id)}
               isSelected={selectedId === root.id}
               isMenuOpen={activeMenuId === root.id}
               isSearchMatch={searchMatchIds.has(root.id)}
               expanded={expanded}
-              forceExpand={false}
+              forceExpand={roleFilter !== 'all'}
               selectedId={selectedId}
               activeMenuId={activeMenuId}
               readOnly={readOnly}
               utilityFilter={utilityFilter}
+              roleFilter={roleFilter}
               searchQuery={query}
               searchMatchIds={searchMatchIds}
+              roleMatchIds={visibleRoleMatchIds}
               toggleExpand={toggleExpand}
               onSelect={onSelect}
               onNewChild={onNewChild}
@@ -463,6 +543,10 @@ export function AssetTree({
         {isSearching && resultCount !== null ? (
           <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest text-center">
             {resultCount} {resultCount === 1 ? 'resultado' : 'resultados'}
+          </p>
+        ) : roleResultCount !== null ? (
+          <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest text-center">
+            {roleResultCount} {roleResultCount === 1 ? 'nodo' : 'nodos'} filtrados
           </p>
         ) : (
           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest text-center">

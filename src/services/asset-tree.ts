@@ -3,12 +3,29 @@ import { supabase } from './supabase'
 export type EnergyAssetNodeType = 'plant' | 'area' | 'system' | 'equipment'
 export type CmmsReadiness = 'ready' | 'partial' | 'missing'
 export type EnergyAssetCreateKind = 'area' | 'system' | 'equipment' | 'meter'
+export type EnergyAssetTreeSource = 'core' | 'legacy' | 'synthetic'
+export type SiteProductMode = 'energy_only' | 'maint_only' | 'maint_and_energy' | 'none'
+
+const PRODUCER_EQUIPMENT_TYPES = new Set([
+  'boiler',
+  'compressor',
+  'chiller',
+  'cooling_tower',
+  'generator',
+  'solar_array',
+  'pv_array',
+])
 
 export interface EnergyAssetTreeNode {
   id: string
   sourceId: string
+  siteId: string
+  source: EnergyAssetTreeSource
   parentId: string | null
   type: EnergyAssetNodeType
+  coreNodeType: string | null
+  nodeRole: 'grouping' | 'maintainable' | null
+  maintainableKind: string | null
   name: string
   code: string | null
   utility: string | null
@@ -61,6 +78,7 @@ export interface EnergyAssetCreateInput {
 
 interface SiteRow {
   id: string
+  company_id: string
   name: string
   code: string | null
   address: string | null
@@ -83,11 +101,39 @@ interface AssetCompatRow {
 
 interface MeasurementPointRow {
   id: string
-  target_type: string
-  target_id: string
-  meter_equipment_id: string | null
-  last_calibration_date: string | null
-  calibration_due_date: string | null
+  asset_id?: string | null
+  scope_asset_id?: string | null
+  physical_meter_asset_id?: string | null
+  domains?: string[] | null
+  target_type?: string | null
+  target_id?: string | null
+  meter_equipment_id?: string | null
+  last_calibration_date?: string | null
+  calibration_due_date?: string | null
+}
+
+interface CoreAssetRow {
+  id: string
+  site_id: string
+  parent_id: string | null
+  name: string
+  code: string | null
+  node_type: string
+  node_role: 'grouping' | 'maintainable'
+  maintainable_kind: string | null
+  category: string | null
+  status: string
+  description: string | null
+  specs: Record<string, unknown> | null
+}
+
+interface EnergyAssetProfileRow {
+  asset_id: string
+  utility_type: string | null
+  energy_role: string | null
+  spec_capacity: number | null
+  spec_efficiency: number | null
+  properties: Record<string, unknown> | null
 }
 
 interface EnergyAreaRow {
@@ -131,27 +177,60 @@ export async function loadEnergyAssetTree(
 ): Promise<EnergyAssetTreeResult> {
   const [
     { data: site },
-    assetsCompatResult,
-    { data: measurementPoints },
+    coreAssetsResult,
   ] = await Promise.all([
-    supabase.from('sites').select('id, name, code, address').eq('id', siteId).single(),
-    queryAssetsCompat(siteId),
-    queryMeasurementPoints(siteId, utilityType),
+    supabase.from('sites').select('id, company_id, name, code, address').eq('id', siteId).single(),
+    queryCoreAssets(siteId),
   ])
 
   if (!site) {
     return emptyTree()
   }
 
+  if (!coreAssetsResult.error && (coreAssetsResult.data || []).length > 0) {
+    const coreAssets = (coreAssetsResult.data || []) as CoreAssetRow[]
+    const profiles = await queryEnergyAssetProfiles(coreAssets.map((asset) => asset.id))
+    const measurementPoints = await queryCoreMeasurementPoints(coreAssets.map((asset) => asset.id))
+    return buildCoreEnergyAssetTree({
+      site: site as SiteRow,
+      coreAssets: filterCoreRowsByUtility(coreAssets, profiles, utilityType),
+      profiles,
+      measurementPoints,
+    })
+  }
+
+  const assetsCompatResult = await queryAssetsCompat(siteId)
   const assetsCompat = assetsCompatResult.error
     ? await queryFallbackAssetRows(siteId)
     : (assetsCompatResult.data || []) as AssetCompatRow[]
+  const measurementPoints = await queryLegacyMeasurementPoints(siteId, utilityType)
 
-  return buildEnergyAssetTree({
+  return buildLegacyEnergyAssetTree({
     site: site as SiteRow,
     assetsCompat: filterAssetRowsByUtility(assetsCompat, utilityType),
-    measurementPoints: (measurementPoints || []) as MeasurementPointRow[],
+    measurementPoints,
   })
+}
+
+function queryCoreAssets(siteId: string) {
+  return supabase
+    .from('assets')
+    .select('id, site_id, parent_id, name, code, node_type, node_role, maintainable_kind, category, status, description, specs')
+    .eq('site_id', siteId)
+    .neq('status', 'decommissioned')
+    .order('name')
+}
+
+async function queryEnergyAssetProfiles(assetIds: string[]): Promise<Map<string, EnergyAssetProfileRow>> {
+  if (assetIds.length === 0) return new Map()
+
+  const { data, error } = await supabase
+    .from('energy_asset_profiles')
+    .select('asset_id, utility_type, energy_role, spec_capacity, spec_efficiency, properties')
+    .in('asset_id', assetIds)
+
+  if (error) return new Map()
+  return new Map(((data || []) as EnergyAssetProfileRow[]).map((profile) => [profile.asset_id, profile]))
 }
 
 function queryAssetsCompat(siteId: string) {
@@ -273,7 +352,47 @@ function filterAssetRowsByUtility(rows: AssetCompatRow[], utilityType: string | 
   return rows.filter((row) => included.has(row.id))
 }
 
-function queryMeasurementPoints(siteId: string, utilityType: string | null) {
+function filterCoreRowsByUtility(
+  rows: CoreAssetRow[],
+  profiles: Map<string, EnergyAssetProfileRow>,
+  utilityType: string | null,
+) {
+  if (!utilityType) return rows
+
+  const rowsById = new Map(rows.map((row) => [row.id, row]))
+  const included = new Set<string>()
+
+  for (const row of rows) {
+    const profile = profiles.get(row.id)
+    if (profile?.utility_type !== utilityType) continue
+
+    let current: CoreAssetRow | undefined = row
+    while (current) {
+      included.add(current.id)
+      current = current.parent_id ? rowsById.get(current.parent_id) : undefined
+    }
+  }
+
+  return rows.filter((row) => included.has(row.id))
+}
+
+async function queryCoreMeasurementPoints(assetIds: string[]): Promise<MeasurementPointRow[]> {
+  if (assetIds.length === 0) return []
+
+  const { data, error } = await supabase
+    .from('measurement_points')
+    .select('id, asset_id, scope_asset_id, physical_meter_asset_id, domains')
+    .or([
+      `asset_id.in.(${assetIds.join(',')})`,
+      `scope_asset_id.in.(${assetIds.join(',')})`,
+      `physical_meter_asset_id.in.(${assetIds.join(',')})`,
+    ].join(','))
+
+  if (error) return []
+  return (data || []) as MeasurementPointRow[]
+}
+
+async function queryLegacyMeasurementPoints(siteId: string, utilityType: string | null): Promise<MeasurementPointRow[]> {
   let query = supabase
     .from('measurement_points')
     .select('id, target_type, target_id, meter_equipment_id, last_calibration_date, calibration_due_date')
@@ -281,7 +400,9 @@ function queryMeasurementPoints(siteId: string, utilityType: string | null) {
     .eq('is_active', true)
 
   if (utilityType) query = query.eq('utility', utilityType)
-  return query
+  const { data, error } = await query
+  if (error) return []
+  return (data || []) as MeasurementPointRow[]
 }
 
 function emptyTree(): EnergyAssetTreeResult {
@@ -299,7 +420,7 @@ function emptyTree(): EnergyAssetTreeResult {
   }
 }
 
-function buildEnergyAssetTree({
+function buildLegacyEnergyAssetTree({
   site,
   assetsCompat,
   measurementPoints,
@@ -313,8 +434,13 @@ function buildEnergyAssetTree({
   const root = createNode({
     id: toNodeId('plant', site.id),
     sourceId: site.id,
+    siteId: site.id,
+    source: 'synthetic',
     parentId: null,
     type: 'plant',
+    coreNodeType: 'plant',
+    nodeRole: 'grouping',
+    maintainableKind: null,
     name: site.name,
     code: site.code,
     utility: null,
@@ -337,8 +463,13 @@ function buildEnergyAssetTree({
     const assetNode = createNode({
       id: toNodeId(nodeType, item.id),
       sourceId: item.id,
+      siteId: site.id,
+      source: 'legacy',
       parentId: nodes.has(parentId) ? parentId : root.id,
       type: nodeType,
+      coreNodeType: item.asset_type,
+      nodeRole: nodeType === 'equipment' ? 'maintainable' : 'grouping',
+      maintainableKind: nodeType === 'equipment' ? 'equipment' : null,
       name: item.name,
       code: item.code,
       utility: item.utility_type,
@@ -381,6 +512,137 @@ function buildEnergyAssetTree({
   }
 }
 
+function buildCoreEnergyAssetTree({
+  site,
+  coreAssets,
+  profiles,
+  measurementPoints,
+}: {
+  site: SiteRow
+  coreAssets: CoreAssetRow[]
+  profiles: Map<string, EnergyAssetProfileRow>
+  measurementPoints: MeasurementPointRow[]
+}): EnergyAssetTreeResult {
+  const nodes = new Map<string, EnergyAssetTreeNode>()
+  const assetsById = new Map(coreAssets.map((asset) => [asset.id, asset]))
+  const rootAsset = coreAssets.find((asset) => asset.node_type === 'plant' && !asset.parent_id)
+    || coreAssets.find((asset) => !asset.parent_id)
+
+  const root = rootAsset
+    ? coreAssetToNode(rootAsset, site, null, profiles.get(rootAsset.id), measurementPoints)
+    : createNode({
+      id: toNodeId('plant', site.id),
+      sourceId: site.id,
+      siteId: site.id,
+      source: 'synthetic',
+      parentId: null,
+      type: 'plant',
+      coreNodeType: 'plant',
+      nodeRole: 'grouping',
+      maintainableKind: null,
+      name: site.name,
+      code: site.code,
+      utility: null,
+      status: 'active',
+      description: site.address,
+      properties: {},
+      isMeasurementAsset: false,
+      measurementPointCount: measurementPoints.length,
+      cmmsReadiness: site.code ? 'ready' : 'partial',
+      cmmsNotes: site.code ? ['Sede lista para Core'] : ['Agregar codigo de sede'],
+    })
+
+  nodes.set(root.id, root)
+
+  for (const asset of coreAssets) {
+    if (rootAsset?.id === asset.id) continue
+    const parentAsset = asset.parent_id ? assetsById.get(asset.parent_id) : null
+    const parentVisualType = parentAsset ? mapCoreNodeToEnergyType(parentAsset) : 'plant'
+    const parentId = parentAsset ? toNodeId(parentVisualType, parentAsset.id) : root.id
+    const node = coreAssetToNode(
+      asset,
+      site,
+      nodes.has(parentId) ? parentId : root.id,
+      profiles.get(asset.id),
+      measurementPoints,
+    )
+    nodes.set(node.id, node)
+  }
+
+  for (const node of nodes.values()) {
+    if (!node.parentId) continue
+    const parent = nodes.get(node.parentId)
+    if (parent) parent.children.push(node)
+  }
+
+  const sortedRoot = sortTree(root)
+  const flatNodes = flattenTree(sortedRoot)
+  for (const node of flatNodes) node.childCount = node.children.length
+
+  return {
+    root: sortedRoot,
+    flatNodes,
+    summary: {
+      plants: flatNodes.filter((node) => node.type === 'plant').length,
+      areas: flatNodes.filter((node) => node.type === 'area').length,
+      systems: flatNodes.filter((node) => node.type === 'system').length,
+      equipment: flatNodes.filter((node) => node.type === 'equipment').length,
+      measurementPoints: measurementPoints.length,
+      cmmsReadyEquipment: flatNodes.filter((node) => node.type === 'equipment' && node.cmmsReadiness === 'ready').length,
+    },
+  }
+}
+
+function coreAssetToNode(
+  asset: CoreAssetRow,
+  site: SiteRow,
+  parentId: string | null,
+  profile: EnergyAssetProfileRow | undefined,
+  measurementPoints: MeasurementPointRow[],
+): EnergyAssetTreeNode {
+  const visualType = mapCoreNodeToEnergyType(asset)
+  const measurementCount = countMeasurements(measurementPoints, asset.id)
+  const isMeasurementAsset = asset.maintainable_kind === 'meter'
+    || asset.maintainable_kind === 'instrument'
+    || profile?.energy_role === 'measurement_device'
+    || profile?.energy_role === 'measurement_subsystem'
+
+  return createNode({
+    id: toNodeId(visualType, asset.id),
+    sourceId: asset.id,
+    siteId: site.id,
+    source: 'core',
+    parentId,
+    type: visualType,
+    coreNodeType: asset.node_type,
+    nodeRole: asset.node_role,
+    maintainableKind: asset.maintainable_kind,
+    name: asset.name,
+    code: asset.code,
+    utility: profile?.utility_type || null,
+    status: asset.status,
+    description: asset.description ?? asset.category ?? null,
+    properties: {
+      ...(asset.specs || {}),
+      ...(profile?.properties || {}),
+      specs: asset.specs || {},
+      category: asset.category,
+      asset_role: profile?.energy_role || null,
+      energy_role: profile?.energy_role || null,
+      spec_capacity: profile?.spec_capacity ?? null,
+      spec_efficiency: profile?.spec_efficiency ?? null,
+      core_node_type: asset.node_type,
+      node_role: asset.node_role,
+      maintainable_kind: asset.maintainable_kind,
+      registry_source: 'core',
+    },
+    isMeasurementAsset,
+    measurementPointCount: measurementCount,
+    cmmsReadiness: buildCoreReadiness(asset),
+    cmmsNotes: buildCoreNotes(asset, profile, measurementCount, isMeasurementAsset),
+  })
+}
+
 function createNode(node: Omit<EnergyAssetTreeNode, 'children' | 'childCount'>): EnergyAssetTreeNode {
   return { ...node, children: [], childCount: 0 }
 }
@@ -396,8 +658,43 @@ function toNodeId(type: EnergyAssetNodeType, id: string) {
 
 function countMeasurements(measurementPoints: MeasurementPointRow[], targetId: string) {
   return measurementPoints.filter((point) => (
-    point.target_id === targetId || point.meter_equipment_id === targetId
+    point.asset_id === targetId
+    || point.scope_asset_id === targetId
+    || point.physical_meter_asset_id === targetId
+    || point.target_id === targetId
+    || point.meter_equipment_id === targetId
   )).length
+}
+
+function mapCoreNodeToEnergyType(asset: CoreAssetRow): EnergyAssetNodeType {
+  if (asset.node_type === 'plant') return 'plant'
+  if (asset.node_role === 'maintainable') return 'equipment'
+  if (asset.node_type === 'system') return 'system'
+  return 'area'
+}
+
+function buildCoreReadiness(asset: CoreAssetRow): CmmsReadiness {
+  if (!asset.code) return 'partial'
+  if (asset.node_role === 'maintainable' && !asset.maintainable_kind) return 'partial'
+  return 'ready'
+}
+
+function buildCoreNotes(
+  asset: CoreAssetRow,
+  profile: EnergyAssetProfileRow | undefined,
+  measurementCount: number,
+  isMeasurementAsset: boolean,
+) {
+  const notes: string[] = []
+  notes.push(`Core: ${asset.node_type} / ${asset.node_role}`)
+  if (asset.maintainable_kind) notes.push(`Mantenible: ${asset.maintainable_kind}`)
+  if (profile?.utility_type) notes.push(`Utility: ${profile.utility_type}`)
+  if (!profile) notes.push('Sin perfil Energy')
+  if (isMeasurementAsset) notes.push('Medidor/instrumento fisico mantenible')
+  if (measurementCount > 0) notes.push(`${measurementCount} MeasurementPoint(s)`)
+  if (!asset.code) notes.push('Requiere codigo/TAG maestro')
+  notes.push('Leido desde Core Asset Registry')
+  return notes
 }
 
 function buildCompatNotes(item: AssetCompatRow, measurementCount: number, isMeasurementAsset: boolean) {
@@ -438,6 +735,244 @@ export function getAllowedCreateKinds(parentType: EnergyAssetNodeType): EnergyAs
 }
 
 export async function createEnergyAssetFromTree(input: EnergyAssetCreateInput) {
+  const name = input.name.trim()
+  const code = input.code.trim().toUpperCase()
+  if (!name) throw new Error('El nombre es requerido.')
+  if (!code) throw new Error('El codigo/TAG es requerido.')
+
+  const site = await getSiteContext(input.siteId)
+  const productMode = await getSiteProductMode(input.siteId)
+
+  if (productMode === 'maint_and_energy' || productMode === 'maint_only') {
+    await createAssetRegistryRequest(input, site, name, code, productMode)
+    return
+  }
+
+  await createCoreAssetFromEnergy(input, site, name, code)
+}
+
+async function createCoreAssetFromEnergy(
+  input: EnergyAssetCreateInput,
+  site: SiteRow,
+  name: string,
+  code: string,
+) {
+  const parent = await resolveCoreParentContext(input.siteId, input.parentSourceId)
+  const coreShape = getCoreCreateShape(input.kind)
+
+  const { data: asset, error } = await supabase
+    .from('assets')
+    .insert({
+      site_id: input.siteId,
+      company_id: site.company_id,
+      parent_id: parent.assetId,
+      name,
+      code,
+      node_type: coreShape.nodeType,
+      node_role: coreShape.nodeRole,
+      maintainable_kind: coreShape.maintainableKind,
+      category: coreShape.category,
+      status: 'active',
+      description: input.description || null,
+      specs: {
+        created_from: 'versa_energy',
+        utility_type: input.utility,
+        equipment_type: input.equipmentType || null,
+      },
+    })
+    .select('id')
+    .single()
+
+  if (error) throw error
+  if (!asset?.id) throw new Error('No se pudo crear el activo Core.')
+
+  await upsertEnergyAssetProfile(asset.id, input)
+
+  if (input.kind === 'meter') {
+    await createCoreMeasurementPoint(input, site, asset.id, parent.assetId || asset.id, name, code)
+  }
+}
+
+async function createAssetRegistryRequest(
+  input: EnergyAssetCreateInput,
+  site: SiteRow,
+  name: string,
+  code: string,
+  productMode: SiteProductMode,
+) {
+  const parent = await resolveCoreParentContext(input.siteId, input.parentSourceId)
+  const coreShape = getCoreCreateShape(input.kind)
+  const payload = {
+    name,
+    code,
+    site_id: input.siteId,
+    parent_id: parent.assetId,
+    node_type: coreShape.nodeType,
+    node_role: coreShape.nodeRole,
+    maintainable_kind: coreShape.maintainableKind,
+    category: coreShape.category,
+    description: input.description || null,
+    utility_type: input.utility,
+    equipment_type: input.equipmentType || null,
+    measurement: input.measurement || null,
+    product_mode: productMode,
+  }
+
+  const requestType = input.kind === 'meter'
+    ? 'create_physical_meter'
+    : 'create_physical_asset'
+
+  const { error } = await supabase
+    .from('asset_registry_requests')
+    .insert({
+      company_id: site.company_id,
+      site_id: input.siteId,
+      requested_from_app: 'versa_energy',
+      request_type: requestType,
+      proposed_parent_id: parent.assetId,
+      proposed_payload: payload,
+    })
+
+  if (error) throw error
+}
+
+async function upsertEnergyAssetProfile(assetId: string, input: EnergyAssetCreateInput) {
+  const { error } = await supabase
+    .from('energy_asset_profiles')
+    .upsert({
+      asset_id: assetId,
+      utility_type: input.utility,
+      energy_role: input.kind === 'meter' ? 'measurement_device' : inferEnergyRole(input.kind, input.equipmentType),
+      properties: {
+        equipment_type: input.equipmentType || null,
+        created_from_asset_tree: true,
+      },
+    })
+
+  if (error) throw error
+}
+
+async function createCoreMeasurementPoint(
+  input: EnergyAssetCreateInput,
+  site: SiteRow,
+  physicalMeterAssetId: string,
+  scopeAssetId: string,
+  name: string,
+  code: string,
+) {
+  const measurement = input.measurement
+  if (!measurement) throw new Error('Falta la configuracion de medicion.')
+
+  const corePayload = {
+    asset_id: scopeAssetId,
+    scope_asset_id: scopeAssetId,
+    physical_meter_asset_id: physicalMeterAssetId,
+    domains: ['energy'],
+    name,
+    unit: measurement.unit,
+    current_value: null,
+    requires_energy_validation: false,
+    scope_notes: `Creado desde VersaEnergy (${input.utility}).`,
+  }
+
+  const { error: coreError } = await supabase.from('measurement_points').insert(corePayload)
+  if (!coreError) return
+
+  const legacyPayload = {
+    site_id: input.siteId,
+    tag: code,
+    name,
+    target_type: 'equipment',
+    target_id: scopeAssetId,
+    asset_id: scopeAssetId,
+    scope_asset_id: scopeAssetId,
+    physical_meter_asset_id: physicalMeterAssetId,
+    meter_equipment_id: physicalMeterAssetId,
+    domains: ['energy'],
+    utility: input.utility,
+    measurement_type: measurement.measurementType,
+    quantity: measurement.quantity,
+    unit: measurement.unit,
+    source_type: measurement.sourceMode === 'iot' ? 'iot_db' : 'manual',
+    source_config: buildMeterSourceConfig(measurement),
+    accumulator_config: buildDefaultAccumulatorConfig(measurement.measurementType),
+    last_calibration_date: measurement.lastCalibrationDate || null,
+    calibration_due_date: measurement.calibrationDueDate || null,
+    properties: {
+      cmms_asset_role: 'measurement_device',
+      created_from_asset_tree: true,
+      capture_mode: measurement.sourceMode,
+      site_company_id: site.company_id,
+    },
+    sync_status: 'pending_sync',
+    integration_key: buildIntegrationKey(input.siteId, 'measurement_point', code),
+  }
+
+  const { error } = await supabase.from('measurement_points').insert(legacyPayload)
+  if (error) throw error
+}
+
+async function getSiteContext(siteId: string): Promise<SiteRow> {
+  const { data, error } = await supabase
+    .from('sites')
+    .select('id, company_id, name, code, address')
+    .eq('id', siteId)
+    .single()
+  if (error) throw error
+  return data as SiteRow
+}
+
+async function getSiteProductMode(siteId: string): Promise<SiteProductMode> {
+  const { data, error } = await supabase.rpc('fn_site_product_mode', { p_site_id: siteId })
+  if (!error && isSiteProductMode(data)) return data
+  return 'energy_only'
+}
+
+function isSiteProductMode(value: unknown): value is SiteProductMode {
+  return value === 'energy_only'
+    || value === 'maint_only'
+    || value === 'maint_and_energy'
+    || value === 'none'
+}
+
+function getCoreCreateShape(kind: EnergyAssetCreateKind) {
+  if (kind === 'area') {
+    return { nodeType: 'area', nodeRole: 'grouping', maintainableKind: null, category: 'other' }
+  }
+  if (kind === 'system') {
+    return { nodeType: 'system', nodeRole: 'grouping', maintainableKind: null, category: 'other' }
+  }
+  if (kind === 'meter') {
+    return { nodeType: 'meter', nodeRole: 'maintainable', maintainableKind: 'meter', category: 'instrument' }
+  }
+  return { nodeType: 'equipment', nodeRole: 'maintainable', maintainableKind: 'equipment', category: 'other' }
+}
+
+function inferEnergyRole(kind: EnergyAssetCreateKind, equipmentType?: string) {
+  if (kind === 'meter') return 'measurement_device'
+  if (equipmentType && PRODUCER_EQUIPMENT_TYPES.has(equipmentType)) return 'producer'
+  return 'consumer'
+}
+
+interface CoreParentContext {
+  assetId: string | null
+}
+
+async function resolveCoreParentContext(siteId: string, parentSourceId: string): Promise<CoreParentContext> {
+  if (parentSourceId === siteId) return { assetId: null }
+
+  const { data, error } = await supabase
+    .from('assets')
+    .select('id, site_id')
+    .eq('site_id', siteId)
+    .eq('id', parentSourceId)
+    .maybeSingle()
+
+  if (error) throw error
+  return { assetId: data?.id || null }
+}
+
+export async function createLegacyEnergyAssetFromTree(input: EnergyAssetCreateInput) {
   const name = input.name.trim()
   const code = input.code.trim().toUpperCase()
   if (!name) throw new Error('El nombre es requerido.')
@@ -553,7 +1088,7 @@ async function createMeterAsset(
     measurement_type: measurement.measurementType,
     quantity: measurement.quantity,
     unit: measurement.unit,
-    source_type: measurement.sourceMode === 'iot' ? 'iot' : 'manual',
+    source_type: measurement.sourceMode === 'iot' ? 'iot_db' : 'manual',
     source_config: buildMeterSourceConfig(measurement),
     accumulator_config: buildDefaultAccumulatorConfig(measurement.measurementType),
     last_calibration_date: measurement.lastCalibrationDate || null,

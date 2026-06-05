@@ -3,12 +3,12 @@
 ## Proposito
 
 Este indice organiza la documentacion actual de VersaEnergy para evitar que los
-planes historicos compitan con el plan vigente.
+planes historicos compitan con el blueprint vigente.
 
-VersaEnergy tiene una base tecnica solida y una arquitectura asset-tree-first
-con lentes de disciplina sobre el activo seleccionado. El trabajo futuro debe
-enfocarse en completar flujos, conectar UI a backend real, reportes, SGEn
-operativo y demo dataset.
+VersaEnergy tiene una base tecnica solida, arquitectura asset-tree-first y
+compatibilidad Core/CMMS. El trabajo futuro se planifica solo desde
+`ENERGY_ENGINEERING_BLUEPRINT.md`; los demas documentos describen estado,
+contratos tecnicos, modulos, base de datos o verificacion.
 
 ## Orden recomendado de lectura
 
@@ -21,10 +21,13 @@ operativo y demo dataset.
    - Resume que piezas funcionan, que piezas existen solo como base y donde hay
      brechas importantes.
 
-3. `05_MASTER_IMPROVEMENT_PLAN.md`
-   - Plan maestro vigente para trabajo futuro.
-   - Divide la mejora de la app en fases cortas, verificables y orientadas a
-     negocio, ingenieria energetica y UI.
+3. `ENERGY_ENGINEERING_BLUEPRINT.md`
+   - **Unico documento de plan vivo.**
+   - Define el contrato conceptual CMMS/Energy, modulos, entidades satelite,
+     roadmap E0-E13, backlog transversal, excepciones e invariantes.
+   - Leer antes de cambios grandes en arquitectura, schema, topologia,
+     medicion, balances, Energy Studies, SGEn, reportes o convergencia con
+     VersaMaint.
 
 4. `01_PRODUCT_VISION.md`
    - Vision de producto.
@@ -40,11 +43,10 @@ operativo y demo dataset.
    - Documentacion por modulo (estilo CMMS).
    - Leer antes de abrir codigo fuente del modulo afectado.
 
-6b. `MAPA_SCADA_PLAN.md` ← **Plan activo si trabajas en Mapa o Modelo**
-   - Arquitectura SCADA-inspired decidida y bloqueada.
-   - Estado de cada fase (0-5) con tareas checklist.
-   - Leer antes de cualquier cambio al modulo Mapa, Inspector,
-     palette, nodes o useEquipmentMPs.
+6a. `modules/CORE_ASSET_REGISTRY.md`
+   - Contrato vigente de activos fisicos compartidos con VersaMaint/Core.
+   - Leer antes de tocar activos, MeasurementPoints, medidores fisicos,
+     solicitudes cross-app, eventos de registry o compatibilidad con CMMS.
 
 7. `DATABASE.md`
    - Referencia de tablas, migraciones y RLS.
@@ -58,12 +60,16 @@ operativo y demo dataset.
 Si dos documentos se contradicen, usar esta prioridad:
 
 1. `AGENTS.md`
-2. `docs/modules/<MODULO>.md`
-3. `docs/05_MASTER_IMPROVEMENT_PLAN.md`
-4. `docs/04_CURRENT_STATE_REFERENCE.md`
-5. `docs/DATABASE.md`
-6. `docs/01_PRODUCT_VISION.md`
-7. `docs/02_TOPOLOGY_ENGINE.md`
+2. `docs/00_DOCUMENTATION_INDEX.md`
+3. `docs/ENERGY_ENGINEERING_BLUEPRINT.md`
+4. `docs/modules/<MODULO>.md`
+5. `docs/04_CURRENT_STATE_REFERENCE.md`
+6. `docs/DATABASE.md`
+7. `docs/01_PRODUCT_VISION.md`
+8. `docs/02_TOPOLOGY_ENGINE.md`
+
+No debe existir otro documento de plan vivo. Los planes temporales completados
+se eliminan; los pendientes se integran al blueprint.
 
 ## Como pedir trabajo futuro a AI
 
@@ -71,9 +77,9 @@ Para cualquier mejora nueva:
 
 ```txt
 Lee AGENTS.md, docs/00_DOCUMENTATION_INDEX.md,
-docs/04_CURRENT_STATE_REFERENCE.md y docs/05_MASTER_IMPROVEMENT_PLAN.md.
+docs/ENERGY_ENGINEERING_BLUEPRINT.md y docs/04_CURRENT_STATE_REFERENCE.md.
 Lee docs/modules/<MODULO>.md del modulo afectado.
-Trabaja solo la fase indicada.
+Trabaja solo la fase o backlog indicado en el blueprint.
 No reescribas backend salvo que la fase lo pida.
 Manten Supabase-first, cero mocks y npm run build verde.
 ```
@@ -86,9 +92,8 @@ Manten Supabase-first, cero mocks y npm run build verde.
 | `00_DOCUMENTATION_INDEX.md` | Mapa de documentacion |
 | `01_PRODUCT_VISION.md` | Vision de producto |
 | `02_TOPOLOGY_ENGINE.md` | Referencia del grafo |
+| `ENERGY_ENGINEERING_BLUEPRINT.md` | Unico plan vivo: arquitectura, fases E0-E13, backlog y memoria de decisiones |
 | `04_CURRENT_STATE_REFERENCE.md` | Lo construido y brechas |
-| `05_MASTER_IMPROVEMENT_PLAN.md` | Plan vigente futuro |
-| `MAPA_SCADA_PLAN.md` | **Plan activo** de refactor SCADA del modulo Mapa (Fases 0-5) — leer antes de tocar Mapa o Modelo |
-| `modules/*.md` | Documentacion por modulo (INICIO, EQUIPOS, MAPA, MEDICION, BALANCES, DESEMPENO, ACCIONES, SGEN, REPORTES, ADMIN) |
+| `modules/*.md` | Documentacion por modulo (CORE_ASSET_REGISTRY, INICIO, EQUIPOS, MAPA, MEDICION, BALANCES, DESEMPENO, ESTUDIOS, ACCIONES, SGEN, REPORTES, ADMIN) |
 | `DATABASE.md` | Referencia de tablas, migraciones y RLS |
 | `VERIFY.md` | Verificacion por tipo de cambio |

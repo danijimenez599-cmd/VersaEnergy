@@ -40,11 +40,31 @@ function calcQuality(timestamp: string | null, frequencyHours = 2): ReadingQuali
 export async function getLastReadings(
   siteId: string,
   nodeIds: string[],
+  diagramId?: string | null,
 ): Promise<LastReading[]> {
   if (!siteId || nodeIds.length === 0) return []
 
-  // 1. Load all MPs targeting these canvas node IDs
-  const { data: mps, error: mpError } = await supabase
+  const nodeIdsByMpId = new Map<string, string>()
+
+  // 1. Diagram bindings are the presentation contract: any MP can be shown on
+  // a canvas node without changing what the MP truly measures in the model.
+  if (diagramId) {
+    const { data: bindings } = await supabase
+      .from('energy_diagram_measurement_bindings')
+      .select('measurement_point_id, target_id')
+      .eq('diagram_id', diagramId)
+      .eq('target_type', 'node')
+      .in('target_id', nodeIds)
+
+    for (const binding of bindings || []) {
+      if (!nodeIdsByMpId.has(binding.measurement_point_id)) {
+        nodeIdsByMpId.set(binding.measurement_point_id, binding.target_id)
+      }
+    }
+  }
+
+  // 2. Legacy/direct canvas-node MPs still work.
+  const { data: directMps, error: directError } = await supabase
     .from('measurement_points')
     .select(`
       id,
@@ -63,11 +83,39 @@ export async function getLastReadings(
     .in('target_id', nodeIds)
     .eq('is_active', true)
 
+  if (!directError) {
+    for (const mp of directMps || []) {
+      if (!nodeIdsByMpId.has(mp.id)) nodeIdsByMpId.set(mp.id, mp.target_id as string)
+    }
+  }
+
+  const boundMpIds = Array.from(nodeIdsByMpId.keys())
+  if (boundMpIds.length === 0) return []
+
+  // 3. Load MP metadata for all resolved IDs.
+  const { data: mps, error: mpError } = await supabase
+    .from('measurement_points')
+    .select(`
+      id,
+      tag,
+      name,
+      unit,
+      measurement_type,
+      quantity,
+      source_type,
+      target_id,
+      calibration_due_date,
+      is_active
+    `)
+    .eq('site_id', siteId)
+    .in('id', boundMpIds)
+    .eq('is_active', true)
+
   if (mpError || !mps || mps.length === 0) return []
 
   const mpIds = mps.map((mp) => mp.id)
 
-  // 2. Load latest reading per MP
+  // 4. Load latest reading per MP
   // We fetch the last reading for each MP using order + limit trick with a
   // separate query per MP would be expensive; instead we fetch recent readings
   // and pick the latest per mpId on the client side.
@@ -86,10 +134,10 @@ export async function getLastReadings(
     }
   }
 
-  // 3. Assemble result — one reading per node (first MP found)
+  // 5. Assemble result — one reading per canvas node (first MP found)
   const byNode = new Map<string, LastReading>()
   for (const mp of mps) {
-    const nodeId = mp.target_id as string
+    const nodeId = nodeIdsByMpId.get(mp.id) || (mp.target_id as string)
     if (byNode.has(nodeId)) continue // take first MP per node
     const latest = latestByMp.get(mp.id)
     byNode.set(nodeId, {

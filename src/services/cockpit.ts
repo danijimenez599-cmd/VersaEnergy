@@ -155,7 +155,6 @@ export async function loadCockpitData({
     { count: areaCount },
     { count: equipmentCount },
     { data: pointsData },
-    { data: diagramData },
     { data: balanceData },
     { data: enpiData },
     { data: improvementData },
@@ -163,7 +162,6 @@ export async function loadCockpitData({
     supabase.from('energy_areas').select('*', { count: 'exact', head: true }).eq('site_id', siteId),
     supabase.from('energy_equipment').select('*', { count: 'exact', head: true }).eq('site_id', siteId),
     pointsQuery,
-    queryDiagrams(siteId, utilityFilter),
     queryBalances(siteId, utilityFilter, range.startIso, range.endIso),
     queryEnpis(siteId, utilityFilter),
     queryImprovements(siteId, utilityFilter),
@@ -226,8 +224,8 @@ export async function loadCockpitData({
     enpis,
     performance,
     improvements: openActions,
-    diagramCount: diagramData?.length || 0,
-    publishedDiagramCount: (diagramData || []).filter((diagram: { status: string }) => diagram.status === 'published').length,
+    diagramCount: 0,
+    publishedDiagramCount: 0,
     measurementCoverage,
     worstUnaccountedPercent,
   })
@@ -255,14 +253,14 @@ export async function loadCockpitData({
       verifiedCostSavings,
       worstUnaccountedPercent,
       deviatedEnpiCount,
-      diagramCount: diagramData?.length || 0,
-      publishedDiagramCount: (diagramData || []).filter((diagram: { status: string }) => diagram.status === 'published').length,
+      diagramCount: 0,
+      publishedDiagramCount: 0,
     },
     moduleStatus: {
       areas: areaCount || 0,
       equipment: equipmentCount || 0,
       measurementPoints: points.length,
-      diagrams: diagramData?.length || 0,
+      diagrams: 0,
       balances: balances.length,
       enpis: enpis.length,
       improvements: improvements.length,
@@ -270,25 +268,15 @@ export async function loadCockpitData({
   }
 }
 
-function queryDiagrams(siteId: string, utility: string | null) {
-  let query = supabase
-    .from('energy_diagrams')
-    .select('id, status, utility_type')
-    .eq('site_id', siteId)
-
-  if (utility) query = query.eq('utility_type', utility)
-  return query
-}
 
 function queryBalances(siteId: string, utility: string | null, startIso: string, endIso: string) {
   let query = supabase
-    .from('energy_balances')
+    .from('energy_balance_sheets')
     .select('utility, unaccounted_for_percent, measurement_coverage')
     .eq('site_id', siteId)
     .gte('period_start', startIso.slice(0, 10))
     .lt('period_start', endIso.slice(0, 10))
-
-  if (utility) query = query.eq('utility', utility)
+  if (utility) query = (query as typeof query).eq('utility', utility)
   return query
 }
 

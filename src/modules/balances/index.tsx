@@ -1,663 +1,782 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/services/supabase'
 import { Button } from '@/shared/Button'
-import { Badge } from '@/shared/Badge'
-import { Card } from '@/shared/Card'
-import { EmptyState } from '@/shared/EmptyState'
-import { Modal } from '@/shared/Modal'
 import { useUIStore } from '@/store/uiStore'
-import { getEnergyPeriodRange, getUtilityLabel } from '@/shared/OperationalContext'
-import { compileFromRows } from '@/services/topology-engine/compiler'
-import { calculateBalance } from '@/services/balance-engine'
-import type { MeasurementPoint } from '@/services/topology-engine/graphTypes'
-import type { EquipmentEfficiency } from '@/services/balance-engine/balanceEngine'
+import { getUtilityLabel } from '@/shared/OperationalContext'
+import { calculateOfficialSheet, persistOfficialResult } from '@/services/balance-sheet-engine'
+import type {
+  BalanceSheet, BalanceEntry, SheetCalcResult, EntryCalcResult,
+} from '@/services/balance-sheet-engine'
+import { RelevantVariablesPage } from './views/RelevantVariablesPage'
 import {
-  Scale, Calculator, ChevronRight, AlertTriangle,
-  CheckCircle, Info, TrendingDown, BarChart2, Minus, Plus,
+  Scale, Plus, ChevronRight, ChevronDown, Trash2,
+  Calculator, TrendingDown, X, Search, Zap, Flame,
+  Wind, Snowflake, Droplets, ArrowDownToLine, ArrowUpFromLine,
+  FlameKindling, BarChart2, RefreshCw, Edit3, Package, AlertTriangle, ShieldCheck,
 } from 'lucide-react'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-interface BalanceRow {
-  id: string; utility: string; period_start: string; period_end: string
-  total_input: number; measured_consumption: number; unaccounted_for: number
-  unaccounted_for_percent: number; measurement_coverage: number
-  status: string; node_results: BalanceNodeResult[]
-  site_id: string; diagram_version_id?: string; notes?: string
+const UTILITY_COLORS: Record<string, string> = {
+  electricity: '#1d4ed8', natural_gas: '#c2410c', steam: '#6d28d9',
+  compressed_air: '#0f766e', chilled_water: '#0e7490', hot_water: '#be123c',
+  industrial_water: '#0369a1', diesel: '#a16207', lpg: '#b45309',
 }
 
-interface BalanceNodeResult {
-  nodeId: string; tag: string; consumption: number; coverage: string
-  efficiencies?: EquipmentEfficiency[]
+const UTILITY_ICONS: Record<string, React.FC<{ size?: number }>> = {
+  electricity: Zap, natural_gas: Flame, steam: FlameKindling,
+  compressed_air: Wind, chilled_water: Snowflake, hot_water: Droplets,
 }
 
-interface DiagramMeta {
-  id: string; name: string; utility_type: string | null; status: string
-}
-
-type MPRow = MeasurementPoint
-
-// ─── Wizard steps ─────────────────────────────────────────────────────────────
-
-const WIZARD_STEPS = [
-  { n: 1, label: 'Configurar' },
-  { n: 2, label: 'Supuestos' },
-  { n: 3, label: 'Revisar datos' },
-  { n: 4, label: 'Resultado' },
+const MONTHS = [
+  'Enero','Febrero','Marzo','Abril','Mayo','Junio',
+  'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre',
 ]
 
-// ─── Coverage color ──────────────────────────────────────────────────────────
-
-function coveragePct(pct: number): { color: string; label: string } {
-  if (pct >= 80) return { color: 'text-emerald-600', label: 'Buena cobertura' }
-  if (pct >= 50) return { color: 'text-amber-600', label: 'Cobertura parcial' }
-  return { color: 'text-red-600', label: 'Cobertura baja' }
+function periodLabel(start: string): string {
+  const [y, m] = start.split('-').map(Number)
+  return `${MONTHS[m - 1]} ${y}`
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+function fmtNum(v: number | null | undefined, dec = 1): string {
+  if (v == null) return '—'
+  return v.toLocaleString('es-MX', { maximumFractionDigits: dec })
+}
 
-export default function BalancesPage() {
-  const [balances, setBalances] = useState<BalanceRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [selected, setSelected] = useState<BalanceRow | null>(null)
-  const [showWizard, setShowWizard] = useState(false)
-  const { selectedSiteId, selectedUtilityType, selectedPeriod } = useUIStore()
-  const navigate = useNavigate()
+// ── Picker types ──────────────────────────────────────────────────────────────
 
-  const loadBalances = useCallback(async () => {
-    if (!selectedSiteId) { setBalances([]); return }
-    setLoading(true)
-    const { startIso, endIso } = getEnergyPeriodRange(selectedPeriod)
-    let q = supabase.from('energy_balances')
-      .select('*').eq('site_id', selectedSiteId)
-      .gte('period_start', startIso).lte('period_end', endIso)
-      .order('created_at', { ascending: false }).limit(20)
-    if (selectedUtilityType) q = q.eq('utility', selectedUtilityType)
-    const { data } = await q
-    setBalances(data || [])
-    setLoading(false)
-  }, [selectedPeriod, selectedSiteId, selectedUtilityType])
+interface EquipRow {
+  id: string; tag: string; name: string; equipment_type: string
+  utility_type: string; area_id: string | null
+}
+interface MPRow {
+  id: string; tag: string; name: string; utility: string
+  measurement_type: string; unit: string; source_type: string
+}
 
-  useEffect(() => { loadBalances() }, [loadBalances])
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-  const unaccPct = (b: BalanceRow) => Number(b.unaccounted_for_percent || 0)
-  const covPct = (b: BalanceRow) => Number(b.measurement_coverage || 0)
+function CoverageDot({ coverage }: { coverage: EntryCalcResult['coverage'] }) {
+  const map: Record<string, string> = {
+    measured: 'bg-emerald-500', estimated: 'bg-amber-400',
+    manual: 'bg-blue-400', no_data: 'bg-gray-300',
+  }
+  const title: Record<string, string> = {
+    measured: 'Medido', estimated: 'Estimado', manual: 'Manual', no_data: 'Sin datos',
+  }
+  return (
+    <span
+      className={`inline-block w-2 h-2 rounded-full shrink-0 ${map[coverage] ?? 'bg-gray-300'}`}
+      title={title[coverage] ?? coverage}
+    />
+  )
+}
+
+function UtilityChip({ utility }: { utility: string }) {
+  const color = UTILITY_COLORS[utility] ?? '#64748b'
+  const Icon = UTILITY_ICONS[utility]
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+      style={{ background: color + '18', color }}
+    >
+      {Icon && <Icon size={9} />}
+      {getUtilityLabel(utility)}
+    </span>
+  )
+}
+
+// ── Sheet card (list view) ────────────────────────────────────────────────────
+
+function SheetCard({ sheet, onOpen, onDelete }: {
+  sheet: BalanceSheet; onOpen: () => void; onDelete: () => void
+}) {
+  const result = sheet.last_result
+  const STATUS: Record<string, string> = {
+    draft: 'bg-slate-100 text-slate-600',
+    closed: 'bg-blue-50 text-blue-700',
+    approved: 'bg-emerald-50 text-emerald-700',
+  }
+  const STATUS_LABEL: Record<string, string> = {
+    draft: 'Borrador', closed: 'Cerrado', approved: 'Aprobado',
+  }
 
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <h2 className="text-sm font-bold text-[--color-tx-2]">Balances de energía</h2>
-        <Button size="sm" leftIcon={<Calculator size={14} />}
-          onClick={() => setShowWizard(true)} disabled={!selectedSiteId || !selectedUtilityType}>
-          Ejecutar balance
-        </Button>
-      </div>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="flex flex-wrap gap-1">
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS[sheet.status]}`}>
+              {STATUS_LABEL[sheet.status]}
+            </span>
+            {sheet.utility
+              ? <UtilityChip utility={sheet.utility} />
+              : <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-white">Multi-utility</span>
+            }
+            {result?.is_official && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                <ShieldCheck size={10} /> E7
+              </span>
+            )}
+          </div>
+          <button onClick={(e) => { e.stopPropagation(); onDelete() }} className="text-slate-200 hover:text-red-400 transition-colors cursor-pointer">
+            <Trash2 size={13} />
+          </button>
+        </div>
+        <h3 className="text-sm font-bold text-slate-900 truncate">{sheet.name}</h3>
+        <p className="text-[11px] text-slate-400 mt-0.5">{periodLabel(sheet.period_start)}</p>
 
-      {!selectedUtilityType && selectedSiteId && (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 flex items-center gap-2">
-          <AlertTriangle size={14} /> Selecciona un utility específico para ejecutar un balance trazable.
+        {result ? (
+          <div className="mt-3 grid grid-cols-3 gap-1 text-center">
+            {[
+              { label: 'Entrada', val: result.total_input_kwh_eq, color: 'text-blue-700' },
+              { label: 'Salida', val: result.total_output_kwh_eq, color: 'text-slate-700' },
+              { label: 'No explic.', val: result.unaccounted_for_pct, color: (result.unaccounted_for_pct ?? 0) > 15 ? 'text-red-600' : 'text-amber-600', pct: true },
+            ].map(({ label, val, color, pct }) => (
+              <div key={label}>
+                <p className="text-[9px] text-slate-400">{label}</p>
+                <p className={`text-[11px] font-bold ${color}`}>{fmtNum(val, pct ? 1 : 0)}{pct ? '%' : ''}</p>
+                {!pct && <p className="text-[8px] text-slate-300">kWh-eq</p>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-[10px] text-slate-400 italic">Sin cálculo</p>
+        )}
+      </div>
+      <div className="border-t border-slate-100 px-4 py-2.5">
+        <button onClick={onOpen} className="w-full flex items-center justify-between text-[11px] font-semibold text-blue-600 hover:text-blue-800 cursor-pointer">
+          Abrir balance <ChevronRight size={12} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── New sheet modal ───────────────────────────────────────────────────────────
+
+function NewSheetModal({ siteId, onCreated, onClose }: {
+  siteId: string; onCreated: (sheet: BalanceSheet) => void; onClose: () => void
+}) {
+  const now = new Date()
+  const [name, setName]         = useState('')
+  const [utility, setUtility]   = useState<string | null>(null)
+  const [period, setPeriod]     = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
+  const [saving, setSaving]     = useState(false)
+
+  const OPTS = [
+    { v: 'electricity', l: 'Electricidad', c: '#1d4ed8' },
+    { v: 'natural_gas', l: 'Gas natural',  c: '#c2410c' },
+    { v: 'steam',       l: 'Vapor',        c: '#6d28d9' },
+    { v: 'compressed_air', l: 'Aire comp.',c: '#0f766e' },
+    { v: 'chilled_water',  l: 'Agua helada',c:'#0e7490' },
+    { v: 'diesel',      l: 'Diésel',       c: '#a16207' },
+  ]
+
+  async function create() {
+    if (!name || !period) return
+    setSaving(true)
+    const [y, m] = period.split('-').map(Number)
+    const start = `${y}-${String(m).padStart(2, '0')}-01`
+    const end   = new Date(y, m, 0).toISOString().split('T')[0]
+    const { data, error } = await supabase
+      .from('energy_balance_sheets')
+      .insert({
+        site_id: siteId,
+        name,
+        utility: utility || null,
+        boundary_type: 'site',
+        boundary_id: siteId,
+        scope_type: 'site',
+        scope_id: siteId,
+        calculation_mode: 'topology_official',
+        period_start: start,
+        period_end: end,
+      })
+      .select().single()
+    setSaving(false)
+    if (!error && data) onCreated(data as BalanceSheet)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <h2 className="text-sm font-bold text-slate-900">Nuevo balance energético</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 cursor-pointer"><X size={16} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <label className="block">
+            <span className="text-[11px] font-bold text-slate-500 block mb-1">Nombre</span>
+            <input value={name} onChange={(e) => setName(e.target.value)}
+              placeholder="Ej. Sala de calderas — Enero 2026"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              autoFocus />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-bold text-slate-500 block mb-1">Período</span>
+            <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+          </label>
+          <div>
+            <span className="text-[11px] font-bold text-slate-500 block mb-2">Utility del balance</span>
+            <button onClick={() => setUtility(null)}
+              className={`mb-2 w-full flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold transition-all cursor-pointer ${utility === null ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+              <span className="flex h-4 w-4 items-center justify-center rounded-full border border-current text-[8px] font-black">∞</span>
+              Multi-utility — totales en kWh equivalentes
+            </button>
+            <div className="grid grid-cols-2 gap-1.5">
+              {OPTS.map(({ v, l, c }) => (
+                <button key={v} onClick={() => setUtility(v)}
+                  className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-2 text-xs font-semibold transition-all cursor-pointer ${utility === v ? 'text-white' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}
+                  style={utility === v ? { borderColor: c, backgroundColor: c } : undefined}>
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: c }} />{l}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
+          <Button variant="secondary" size="sm" onClick={onClose}>Cancelar</Button>
+          <Button size="sm" disabled={!name || saving} loading={saving} onClick={create}>Crear</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Equipment picker ──────────────────────────────────────────────────────────
+
+function EquipmentPicker({ siteId, utilityFilter, onPick, onClose }: {
+  siteId: string; utilityFilter: string | null
+  onPick: (equip: EquipRow, mp: MPRow, side: 'input' | 'output') => void
+  onClose: () => void
+}) {
+  const [equipment, setEquipment] = useState<EquipRow[]>([])
+  const [expanded, setExpanded]   = useState<string | null>(null)
+  const [mps, setMps]             = useState<MPRow[]>([])
+  const [loading, setLoading]     = useState(false)
+  const [query, setQuery]         = useState('')
+
+  useEffect(() => {
+    let q = supabase.from('energy_equipment')
+      .select('id, tag, name, equipment_type, utility_type, area_id')
+      .eq('site_id', siteId).order('tag')
+    if (utilityFilter) q = (q as typeof q).eq('utility_type', utilityFilter)
+    q.then(({ data }) => setEquipment((data ?? []) as EquipRow[]))
+  }, [siteId, utilityFilter])
+
+  async function expand(equip: EquipRow) {
+    if (expanded === equip.id) { setExpanded(null); setMps([]); return }
+    setExpanded(equip.id); setLoading(true)
+    const { data } = await supabase.from('measurement_points')
+      .select('id, tag, name, utility, measurement_type, unit, source_type')
+      .eq('site_id', siteId)
+      .or(`target_id.eq.${equip.id},meter_equipment_id.eq.${equip.id}`)
+      .order('tag')
+    setMps((data ?? []) as MPRow[]); setLoading(false)
+  }
+
+  const filtered = equipment.filter((e) =>
+    !query || e.tag.toLowerCase().includes(query.toLowerCase()) || e.name.toLowerCase().includes(query.toLowerCase())
+  )
+
+  return (
+    <div className="flex flex-col" style={{ maxHeight: 440 }}>
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-100">
+        <p className="text-[11px] font-bold text-slate-700">Agregar medición</p>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-700 cursor-pointer"><X size={13} /></button>
+      </div>
+      <div className="px-3 py-2 border-b border-slate-100">
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5">
+          <Search size={11} className="text-slate-400 shrink-0" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar equipo..." className="flex-1 text-xs outline-none bg-transparent" />
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {filtered.map((equip) => {
+          const isOpen = expanded === equip.id
+          const color = UTILITY_COLORS[equip.utility_type] ?? '#64748b'
+          return (
+            <div key={equip.id} className="border-b border-slate-50 last:border-0">
+              <button onClick={() => expand(equip)}
+                className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 transition-colors cursor-pointer text-left">
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-bold text-slate-800 truncate">{equip.tag} · {equip.name}</p>
+                  <p className="text-[9px] text-slate-400">{equip.equipment_type}</p>
+                </div>
+                {isOpen ? <ChevronDown size={11} className="text-slate-400 shrink-0" /> : <ChevronRight size={11} className="text-slate-400 shrink-0" />}
+              </button>
+              {isOpen && (
+                <div className="bg-slate-50 px-3 pb-2 pt-1">
+                  {loading && <p className="text-[10px] text-slate-400 py-2 text-center">Cargando...</p>}
+                  {!loading && mps.length === 0 && <p className="text-[10px] text-slate-400 italic py-1">Sin MPs vinculados</p>}
+                  {mps.map((mp) => (
+                    <div key={mp.id} className="py-1.5 border-b border-slate-100 last:border-0">
+                      <p className="text-[10px] font-bold text-slate-700">{mp.tag} <span className="font-normal text-slate-400">· {mp.measurement_type} · {mp.unit}</span></p>
+                      <div className="flex gap-1.5 mt-1">
+                        <button onClick={() => onPick(equip, mp, 'input')}
+                          className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-blue-200 bg-blue-50 py-1 text-[9px] font-bold text-blue-700 hover:bg-blue-100 cursor-pointer">
+                          <ArrowDownToLine size={9} /> Entrada
+                        </button>
+                        <button onClick={() => onPick(equip, mp, 'output')}
+                          className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white py-1 text-[9px] font-bold text-slate-600 hover:bg-slate-50 cursor-pointer">
+                          <ArrowUpFromLine size={9} /> Salida
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Entry row ─────────────────────────────────────────────────────────────────
+
+function EntryRow({ entry, calc, onRemove, onEditLabel }: {
+  entry: BalanceEntry; calc?: EntryCalcResult
+  onRemove: () => void; onEditLabel: (l: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [label, setLabel]     = useState(entry.label ?? entry.measurement_point?.tag ?? '—')
+  function save() { setEditing(false); onEditLabel(label) }
+  return (
+    <div className="flex items-center gap-2 px-3 py-2.5 bg-white border border-slate-100 rounded-xl hover:border-slate-200 group transition-colors">
+      {calc && <CoverageDot coverage={calc.coverage} />}
+      <div className="flex-1 min-w-0">
+        {editing ? (
+          <input value={label} onChange={(e) => setLabel(e.target.value)}
+            onBlur={save} onKeyDown={(e) => e.key === 'Enter' && save()}
+            className="w-full text-xs outline-none border-b border-blue-300 bg-transparent" autoFocus />
+        ) : (
+          <div className="flex items-center gap-1">
+            <p className="text-xs font-semibold text-slate-800 truncate">{label}</p>
+            <button onClick={() => setEditing(true)}
+              className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-slate-500 cursor-pointer">
+              <Edit3 size={9} />
+            </button>
+          </div>
+        )}
+        <div className="flex items-center gap-1 mt-0.5">
+          {entry.measurement_point && (
+            <p className="text-[9px] text-slate-400 font-mono">{entry.measurement_point.tag}</p>
+          )}
+          {calc?.utility && <UtilityChip utility={calc.utility} />}
+        </div>
+      </div>
+      <div className="text-right shrink-0">
+        {calc && calc.value > 0 ? (
+          <>
+            <p className="text-xs font-bold text-slate-900">{fmtNum(calc.value, 1)} <span className="text-[9px] text-slate-400">{calc.unit}</span></p>
+            {calc.value_kwh_eq != null && (
+              <p className="text-[9px] text-slate-400">{fmtNum(calc.value_kwh_eq, 0)} kWh-eq</p>
+            )}
+          </>
+        ) : (
+          <p className="text-[10px] text-slate-300 italic">sin datos</p>
+        )}
+      </div>
+      <button onClick={onRemove} className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 cursor-pointer p-1 transition-all">
+        <Trash2 size={12} />
+      </button>
+    </div>
+  )
+}
+
+// ── Result panel ──────────────────────────────────────────────────────────────
+
+function ResultPanel({ result, unit }: { result: SheetCalcResult; unit: string | null }) {
+  const unacc = result.unaccounted_for_pct
+  const uncColor = unacc > 15 ? 'text-red-600' : unacc > 8 ? 'text-amber-600' : 'text-emerald-600'
+  const official = result.official
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+      <div className="bg-slate-900 px-4 py-2.5 flex items-center justify-between gap-2">
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resultado</p>
+        {official && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-emerald-300">
+            <ShieldCheck size={10} /> E7 oficial
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100">
+        {[
+          { icon: <ArrowDownToLine size={11} className="text-blue-500" />, label: 'Entrada', val: result.total_input_kwh_eq, native: result.total_input, color: 'text-slate-900' },
+          { icon: <ArrowUpFromLine size={11} className="text-slate-500" />, label: 'Salida', val: result.total_output_kwh_eq, native: result.total_output, color: 'text-slate-900' },
+          { icon: <TrendingDown size={11} className="text-red-400" />, label: 'No explic.', val: result.unaccounted_for_pct, isPct: true, color: uncColor },
+        ].map(({ icon, label, val, native, color, isPct }) => (
+          <div key={label} className="px-3 py-3 text-center">
+            <div className="flex items-center justify-center gap-1 mb-1">{icon}<p className="text-[9px] text-slate-400">{label}</p></div>
+            <p className={`text-sm font-black ${color}`}>{fmtNum(val, isPct ? 1 : 0)}{isPct ? '%' : ''}</p>
+            {!isPct && <p className="text-[9px] text-slate-400">kWh-eq</p>}
+            {!isPct && unit && native != null && <p className="text-[8px] text-slate-300">{fmtNum(native, 0)} {unit}</p>}
+          </div>
+        ))}
+      </div>
+      <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-3">
+        <BarChart2 size={11} className="text-slate-400 shrink-0" />
+        <p className="text-[10px] text-slate-500 flex-1">Cobertura</p>
+        <div className="flex items-center gap-2">
+          <div className="w-20 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, result.measurement_coverage)}%` }} />
+          </div>
+          <span className="text-[10px] font-bold text-slate-700">{fmtNum(result.measurement_coverage, 1)}%</span>
+        </div>
+      </div>
+      {official && (
+        <div className="px-4 py-3 border-b border-slate-100 space-y-1.5">
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-slate-500">Versión topológica</span>
+            <span className="font-mono text-slate-700">v{official.topology_snapshot.diagram_version_number}</span>
+          </div>
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-slate-500">Confianza</span>
+            <span className="font-bold text-emerald-700">{official.confidence_score}%</span>
+          </div>
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-slate-500">Versiones hijas</span>
+            <span className="font-mono text-slate-700">{official.child_diagram_version_ids.length}</span>
+          </div>
         </div>
       )}
-
-      {loading ? (
-        <div className="py-12 text-center text-sm text-gray-400">Cargando balances...</div>
-      ) : balances.length === 0 ? (
-        <EmptyState
-          icon={<Scale size={48} strokeWidth={1.5} />}
-          title="Sin balances"
-          description={`No hay balances para ${getUtilityLabel(selectedUtilityType)} en el periodo seleccionado.`}
-          action={selectedSiteId && selectedUtilityType && (
-            <Button size="sm" leftIcon={<Calculator size={14} />} onClick={() => setShowWizard(true)}>
-              Ejecutar primer balance
-            </Button>
-          )}
-        />
-      ) : (
-        <div className="space-y-3">
-          {balances.map((b) => {
-            const ua = unaccPct(b)
-            const cv = covPct(b)
-            const { color: cvColor } = coveragePct(cv)
+      {official?.findings.length ? (
+        <div className="px-4 py-3 border-b border-slate-100 space-y-2">
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Hallazgos</p>
+          {official.findings.slice(0, 3).map((finding) => (
+            <div key={finding.id} className="rounded-lg bg-slate-50 px-2.5 py-2">
+              <p className="text-[10px] font-bold text-slate-700">{finding.title}</p>
+              <p className="text-[9px] text-slate-500 leading-snug">{finding.detail}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {Object.keys(result.by_utility).length > 1 && (
+        <div className="px-4 py-3 space-y-1.5">
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-2">Por utility (kWh-eq)</p>
+          {Object.entries(result.by_utility).map(([util, data]) => {
+            const c = UTILITY_COLORS[util] ?? '#64748b'
             return (
-              <Card key={b.id} padding="md" className="cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => setSelected(b === selected ? null : b)}>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                      <p className="text-sm font-semibold text-gray-800">
-                        {new Date(b.period_start).toLocaleDateString('es', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        {' — '}
-                        {new Date(b.period_end).toLocaleDateString('es', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </p>
-                      <Badge color="teal" size="sm">{b.utility}</Badge>
-                      <Badge color={b.status === 'final' ? 'green' : 'gray'} size="sm">{b.status}</Badge>
-                    </div>
-                    {/* Mini balance bar */}
-                    <BalanceBar
-                      input={b.total_input}
-                      measured={b.measured_consumption}
-                      unaccounted={Math.max(0, b.unaccounted_for)}
-                      unit=""
-                    />
-                  </div>
-                  <div className="text-right shrink-0 space-y-1">
-                    <div>
-                      <p className="text-[10px] text-gray-400">No explicado</p>
-                      <p className={`text-lg font-bold ${ua > 10 ? 'text-red-500' : ua > 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                        {ua.toFixed(1)}%
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-gray-400">Cobertura</p>
-                      <p className={`text-sm font-semibold ${cvColor}`}>{cv.toFixed(0)}%</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Expanded detail */}
-                {selected?.id === b.id && (
-                  <div className="mt-4 pt-4 border-t border-border space-y-4">
-                    <BalanceDetail balance={b} />
-                    {ua > 5 && (
-                      <div className="flex items-center gap-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
-                        <AlertTriangle size={16} className="text-amber-600 shrink-0" />
-                        <p className="text-sm text-amber-800 flex-1">
-                          El {ua.toFixed(1)}% no explicado puede representar una oportunidad de ahorro.
-                        </p>
-                        <Button size="sm" variant="secondary"
-                          onClick={(e) => { e.stopPropagation(); navigate('/acciones') }}>
-                          Crear oportunidad →
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </Card>
+              <div key={util} className="flex items-center gap-2 text-[10px]">
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: c }} />
+                <span className="text-slate-600 flex-1 truncate">{data.label}</span>
+                <span className="font-mono text-blue-600">{fmtNum(data.input_kwh, 0)}</span>
+                <span className="text-slate-300 text-[8px]">in</span>
+                <span className="font-mono text-slate-500">{fmtNum(data.output_kwh, 0)}</span>
+                <span className="text-slate-300 text-[8px]">out</span>
+              </div>
             )
           })}
         </div>
       )}
-
-      {/* Balance Run Wizard */}
-      <Modal open={showWizard} onClose={() => setShowWizard(false)} title="Ejecutar balance" size="lg">
-        <BalanceWizard
-          siteId={selectedSiteId || ''}
-          utilityType={selectedUtilityType || ''}
-          selectedPeriod={selectedPeriod}
-          onComplete={() => { setShowWizard(false); loadBalances() }}
-          onCancel={() => setShowWizard(false)}
-        />
-      </Modal>
     </div>
   )
 }
 
-// ─── Balance bar visual ────────────────────────────────────────────────────────
+// ── Balance editor ────────────────────────────────────────────────────────────
 
-function BalanceBar({ input, measured, unaccounted, unit }: {
-  input: number; measured: number; unaccounted: number; unit: string
-}) {
-  if (!input) return null
-  const measPct = Math.min(100, (measured / input) * 100)
-  const unaccPct = Math.min(100 - measPct, (unaccounted / input) * 100)
+function BalanceEditor({ sheet: init, onBack }: { sheet: BalanceSheet; onBack: () => void }) {
+  const [sheet, setSheet]     = useState<BalanceSheet>(init)
+  const [entries, setEntries] = useState<BalanceEntry[]>([])
+  const [result, setResult]   = useState<SheetCalcResult | null>(null)
+  const [showPicker, setPicker] = useState(false)
+  const [calculating, setCalc]  = useState(false)
+  const [saving, setSaving]     = useState(false)
+  const [calcError, setCalcError] = useState<string | null>(null)
+
+  const loadEntries = useCallback(async () => {
+    const { data } = await supabase
+      .from('energy_balance_entries')
+      .select(`*, equipment:energy_equipment(id,tag,name,equipment_type,utility_type), measurement_point:measurement_points(id,tag,name,utility,measurement_type,unit,source_type)`)
+      .eq('sheet_id', sheet.id).order('side').order('order_index')
+    setEntries((data ?? []) as BalanceEntry[])
+  }, [sheet.id])
+
+  useEffect(() => { loadEntries() }, [loadEntries])
+
+  async function addEntry(equip: EquipRow, mp: MPRow, side: 'input' | 'output') {
+    const max = entries.filter((e) => e.side === side).length
+    const { data } = await supabase.from('energy_balance_entries')
+      .insert({ sheet_id: sheet.id, side, equipment_id: equip.id, measurement_point_id: mp.id, label: `${equip.tag} — ${mp.tag}`, order_index: max })
+      .select(`*, equipment:energy_equipment(id,tag,name,equipment_type,utility_type), measurement_point:measurement_points(id,tag,name,utility,measurement_type,unit,source_type)`)
+      .single()
+    if (data) setEntries((prev) => [...prev, data as BalanceEntry])
+    setPicker(false)
+  }
+
+  async function removeEntry(id: string) {
+    await supabase.from('energy_balance_entries').delete().eq('id', id)
+    setEntries((prev) => prev.filter((e) => e.id !== id))
+  }
+
+  async function updateLabel(id: string, label: string) {
+    await supabase.from('energy_balance_entries').update({ label }).eq('id', id)
+    setEntries((prev) => prev.map((e) => e.id === id ? { ...e, label } : e))
+  }
+
+  async function runCalc() {
+    setCalc(true)
+    setCalcError(null)
+    try {
+      const calc = await calculateOfficialSheet(sheet, entries)
+      setResult(calc as never)
+      await persistOfficialResult(calc)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo calcular el balance oficial.'
+      setCalcError(message)
+    }
+    setCalc(false)
+  }
+
+  async function setStatus(status: BalanceSheet['status']) {
+    setSaving(true)
+    await supabase.from('energy_balance_sheets').update({ status }).eq('id', sheet.id)
+    setSheet((s) => ({ ...s, status }))
+    setSaving(false)
+  }
+
+  const inputs  = entries.filter((e) => e.side === 'input')
+  const outputs = entries.filter((e) => e.side === 'output')
+  const calcMap = result ? new Map(result.entries.map((e) => [e.entry_id, e])) : new Map<string, EntryCalcResult>()
+  const nativeUnit = inputs[0]?.measurement_point?.unit ?? null
+
+  const STATUS_NEXT: Record<string, { label: string; to: BalanceSheet['status']; variant: 'primary' | 'success' }> = {
+    draft:    { label: 'Cerrar período', to: 'closed',   variant: 'primary' },
+    closed:   { label: 'Aprobar',        to: 'approved', variant: 'success' },
+    approved: { label: '✓ Aprobado',     to: 'approved', variant: 'success' },
+  }
+  const action = STATUS_NEXT[sheet.status]
+
   return (
-    <div>
-      <div className="flex h-4 rounded-full overflow-hidden bg-gray-100 w-full">
-        <div className="bg-emerald-400 h-full transition-all" style={{ width: `${measPct}%` }} title={`Medido: ${measured.toLocaleString()}`} />
-        <div className="bg-red-400 h-full transition-all" style={{ width: `${unaccPct}%` }} title={`No explicado: ${unaccounted.toLocaleString()}`} />
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 bg-white shrink-0">
+        <button onClick={onBack} className="text-[11px] text-slate-400 hover:text-slate-700 cursor-pointer">← Balances</button>
+        <div className="h-4 w-px bg-slate-200" />
+        <div className="flex-1 min-w-0">
+          <h2 className="text-sm font-bold text-slate-900 truncate">{sheet.name}</h2>
+          <p className="text-[10px] text-slate-400">{periodLabel(sheet.period_start)} · {sheet.utility ? getUtilityLabel(sheet.utility) : 'Multi-utility'}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button size="sm" variant="secondary" leftIcon={<Calculator size={12} />} loading={calculating} onClick={runCalc}>
+            Calcular oficial
+          </Button>
+          {sheet.status !== 'approved' && (
+            <Button size="sm" variant={action.variant} loading={saving} onClick={() => setStatus(action.to)}>
+              {action.label}
+            </Button>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-4 mt-1 text-[11px] text-gray-400">
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />Medido</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400 inline-block" />No explicado</span>
-        {unit && <span>Entrada: {input.toLocaleString()} {unit}</span>}
+
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-5xl mx-auto px-5 py-5 grid grid-cols-1 lg:grid-cols-[1fr_1fr_300px] gap-5">
+
+          {/* Entradas */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <ArrowDownToLine size={13} className="text-blue-500" />
+                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wide">Entradas</h3>
+                <span className="text-[10px] text-slate-400">({inputs.length})</span>
+              </div>
+              {result && <span className="text-[11px] font-bold text-blue-700">{fmtNum(result.total_input_kwh_eq, 0)} kWh-eq</span>}
+            </div>
+            <div className="space-y-2">
+              {inputs.map((e) => (
+                <EntryRow key={e.id} entry={e} calc={calcMap.get(e.id)}
+                  onRemove={() => removeEntry(e.id)} onEditLabel={(l) => updateLabel(e.id, l)} />
+              ))}
+              {inputs.length === 0 && (
+                <div className="rounded-xl border border-dashed border-blue-200 bg-blue-50/40 py-8 text-center">
+                  <p className="text-xs text-blue-400">Agrega entradas →</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Salidas */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <ArrowUpFromLine size={13} className="text-slate-500" />
+                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wide">Salidas / Consumos</h3>
+                <span className="text-[10px] text-slate-400">({outputs.length})</span>
+              </div>
+              {result && <span className="text-[11px] font-bold text-slate-600">{fmtNum(result.total_output_kwh_eq, 0)} kWh-eq</span>}
+            </div>
+            <div className="space-y-2">
+              {outputs.map((e) => (
+                <EntryRow key={e.id} entry={e} calc={calcMap.get(e.id)}
+                  onRemove={() => removeEntry(e.id)} onEditLabel={(l) => updateLabel(e.id, l)} />
+              ))}
+              {outputs.length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-8 text-center">
+                  <p className="text-xs text-slate-400">Agrega salidas →</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Panel lateral */}
+          <div className="space-y-4">
+            {showPicker ? (
+              <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                <EquipmentPicker siteId={sheet.site_id} utilityFilter={sheet.utility}
+                  onPick={addEntry} onClose={() => setPicker(false)} />
+              </div>
+            ) : (
+              <button onClick={() => setPicker(true)}
+                className="w-full flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/40 py-5 text-xs font-semibold text-blue-600 hover:border-blue-400 hover:bg-blue-50 transition-all cursor-pointer">
+                <Plus size={13} /> Agregar equipo / medición
+              </button>
+            )}
+            {result && <ResultPanel result={result} unit={nativeUnit} />}
+            {calcError && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                  <p>{calcError}</p>
+                </div>
+              </div>
+            )}
+            {!result && entries.length > 0 && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 py-10 text-center">
+                <Calculator size={22} className="text-slate-300 mx-auto mb-2" />
+                <p className="text-xs text-slate-400">Presiona "Calcular oficial"</p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
 }
 
-// ─── Balance detail ────────────────────────────────────────────────────────────
+// ── Main page ─────────────────────────────────────────────────────────────────
 
-function BalanceDetail({ balance: b }: { balance: BalanceRow }) {
-  const metrics = [
-    { label: 'Entrada total', value: b.total_input, icon: Plus, color: 'text-brand-blue' },
-    { label: 'Medido', value: b.measured_consumption, icon: CheckCircle, color: 'text-emerald-600' },
-    { label: 'No explicado', value: b.unaccounted_for, icon: Minus, color: 'text-red-500' },
-    { label: 'Cobertura', value: b.measurement_coverage, icon: BarChart2, color: 'text-amber-600', suffix: '%' },
+type BalanceTab = 'balances' | 'variables'
+
+export default function BalancesPage() {
+  const [tab, setTab]           = useState<BalanceTab>('balances')
+  const [sheets, setSheets]     = useState<BalanceSheet[]>([])
+  const [loading, setLoading]   = useState(false)
+  const [showNew, setShowNew]   = useState(false)
+  const [open, setOpen]         = useState<BalanceSheet | null>(null)
+  const { selectedSiteId }      = useUIStore()
+
+  const load = useCallback(async () => {
+    if (!selectedSiteId) { setSheets([]); return }
+    setLoading(true)
+    const { data } = await supabase
+      .from('energy_balance_sheets')
+      .select(`*, last_result:energy_balance_results(id, total_input_kwh_eq, total_output_kwh_eq, unaccounted_for_kwh_eq, unaccounted_for_pct, measurement_coverage, is_official, result_status, confidence_score)`)
+      .eq('site_id', selectedSiteId)
+      .order('created_at', { ascending: false }).limit(50)
+    const rows = (data ?? []).map((s: Record<string, unknown>) => {
+      const arr = Array.isArray(s.last_result) ? s.last_result : []
+      return { ...s, last_result: arr[0] ?? null }
+    })
+    setSheets(rows as BalanceSheet[])
+    setLoading(false)
+  }, [selectedSiteId])
+
+  useEffect(() => { load() }, [load])
+
+  // El editor ocupa pantalla completa, sin tabs
+  if (open) {
+    return <BalanceEditor sheet={open} onBack={() => { setOpen(null); load() }} />
+  }
+
+  const TABS: { id: BalanceTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'balances',  label: 'Balances energéticos', icon: <Scale size={12} /> },
+    { id: 'variables', label: 'Variables relevantes', icon: <Package size={12} /> },
   ]
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {metrics.map((m) => (
-          <div key={m.label} className="bg-gray-50 rounded-xl p-3 border border-border">
-            <div className="flex items-center gap-1.5 mb-1">
-              <m.icon size={12} className={m.color} />
-              <span className="text-[10px] text-gray-500 font-medium">{m.label}</span>
-            </div>
-            <p className={`text-base font-bold ${m.color}`}>
-              {Number(m.value || 0).toLocaleString('es', { maximumFractionDigits: 1 })}{m.suffix || ''}
-            </p>
-          </div>
-        ))}
-      </div>
+    <div className="flex flex-col h-full overflow-y-auto">
+      <div className="max-w-6xl mx-auto w-full px-5 py-5 space-y-5">
 
-      {(b.node_results as BalanceNodeResult[] || []).length > 0 && (
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Desglose por punto</p>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left py-1.5 px-2 text-xs font-medium text-gray-500">Tag</th>
-                <th className="text-right py-1.5 px-2 text-xs font-medium text-gray-500">Consumo</th>
-                <th className="text-left py-1.5 px-2 text-xs font-medium text-gray-500">Cobertura</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(b.node_results as BalanceNodeResult[]).slice(0, 15).map((n) => (
-                <tr key={n.nodeId} className="border-b border-gray-50 hover:bg-gray-50/50">
-                  <td className="py-1.5 px-2 font-mono text-xs text-brand-blue">{n.tag}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{Number(n.consumption || 0).toLocaleString()}</td>
-                  <td className="py-1.5 px-2">
-                    <Badge size="sm" color={n.coverage === 'measured' ? 'green' : n.coverage === 'estimated' ? 'orange' : 'gray'}>
-                      {n.coverage}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* Tab strip */}
+        <div className="flex gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1 w-fit">
+          {TABS.map(({ id, label, icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={[
+                'flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer',
+                tab === id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+              ].join(' ')}
+            >
+              {icon}{label}
+            </button>
+          ))}
         </div>
-      )}
 
-      {/* Eficiencias por equipo */}
-      {(() => {
-        const effs = (b.node_results as BalanceNodeResult[] || []).flatMap(n => n.efficiencies || [])
-        if (effs.length === 0) return null
-
-        return (
-          <div className="pt-2">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Eficiencias por equipo</p>
-            <div className="grid grid-cols-1 gap-2">
-              {effs.map((e, idx) => {
-                const eff = e.efficiencyPercent
-                const isGood = eff != null && eff >= 85
-                const isWarn = eff != null && eff >= 70 && eff < 85
-                const isBad = eff != null && eff < 70
-                
-                return (
-                  <div key={idx} className="flex items-center justify-between bg-white border border-border rounded-xl p-3 shadow-sm">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[10px] font-mono font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">{e.tag}</span>
-                        <span className="text-xs font-semibold">{e.label || 'Equipo'}</span>
-                      </div>
-                      <div className="flex items-center gap-3 text-[10px] text-gray-500 font-mono">
-                        <span>IN: {Number(e.inputValue).toLocaleString('es-MX', { maximumFractionDigits: 1 })} {e.inputUnit} <span className="opacity-50">({getUtilityLabel(e.inputUtility)})</span></span>
-                        <span>→</span>
-                        <span>OUT: {Number(e.outputValue).toLocaleString('es-MX', { maximumFractionDigits: 1 })} {e.outputUnit} <span className="opacity-50">({getUtilityLabel(e.outputUtility)})</span></span>
-                      </div>
-                    </div>
-                    {eff != null ? (
-                      <div className={`text-right px-3 py-1.5 rounded-lg border ${
-                        isGood ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
-                        isWarn ? 'bg-amber-50 border-amber-100 text-amber-700' :
-                        isBad  ? 'bg-red-50 border-red-100 text-red-700' :
-                                 'bg-gray-50 border-gray-200 text-gray-700'
-                      }`}>
-                        <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80 mb-0.5">Eficiencia</p>
-                        <p className="text-lg font-bold leading-none">{eff.toFixed(1)}%</p>
-                      </div>
-                    ) : (
-                      <div className="text-right px-3 py-1.5 rounded-lg border bg-gray-50 border-gray-200 text-gray-500">
-                        <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80 mb-0.5">Eficiencia</p>
-                        <p className="text-xs font-medium leading-none">Sin factor</p>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+        {/* ── Tab: Balances ─────────────────────────────────────────────── */}
+        {tab === 'balances' && (
+          <>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ingeniería energética</p>
+                <h1 className="text-lg font-black text-slate-950">Balances energéticos</h1>
+                <p className="text-xs text-slate-400 mt-0.5">Compón entradas y salidas · cuantifica consumo y pérdidas no explicadas</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="secondary" size="sm" icon={<RefreshCw size={13} />} onClick={load} />
+                <Button size="sm" leftIcon={<Plus size={13} />} onClick={() => setShowNew(true)}>Nuevo balance</Button>
+              </div>
             </div>
-          </div>
-        )
-      })()}
-    </div>
-  )
-}
 
-async function findPublishedVersionId(diagramId: string): Promise<string | null> {
-  if (!diagramId) return null
-  const { data } = await supabase
-    .from('energy_diagram_versions')
-    .select('id')
-    .eq('diagram_id', diagramId)
-    .eq('is_published', true)
-    .order('version_number', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  return data?.id || null
-}
-
-// ─── Balance Run Wizard ────────────────────────────────────────────────────────
-
-function BalanceWizard({ siteId, utilityType, selectedPeriod, onComplete, onCancel }: {
-  siteId: string; utilityType: string; selectedPeriod: string
-  onComplete: () => void; onCancel: () => void
-}) {
-  const [step, setStep] = useState(1)
-  const [diagrams, setDiagrams] = useState<DiagramMeta[]>([])
-  const [selectedDiagram, setSelectedDiagram] = useState<string>('')
-  const [mps, setMps] = useState<MPRow[]>([])
-  const [mpSummary, setMpSummary] = useState<{ id: string; tag: string; count: number; sum: number }[]>([])
-  const [result, setResult] = useState<{
-    totalInput: number; measured: number; unaccounted: number; coverage: number; unit: string
-    nodeResults: BalanceNodeResult[]
-    equipmentEfficiencies?: EquipmentEfficiency[]
-  } | null>(null)
-  const [running, setRunning] = useState(false)
-  const [notes, setNotes] = useState('')
-  const [assumptions, setAssumptions] = useState({ technicalLossesPct: 2.0, expectedLeaksPct: 0.5 })
-
-  useEffect(() => {
-    supabase.from('energy_diagrams').select('id, name, utility_type, status')
-      .eq('site_id', siteId).eq('utility_type', utilityType)
-      .eq('status', 'published')
-      .then(({ data }) => { setDiagrams(data || []); if (data?.length === 1) setSelectedDiagram(data[0].id) })
-    supabase
-      .from('measurement_points')
-      .select('id, site_id, tag, name, target_type, target_id, utility, measurement_type, quantity, unit, source_type, source_config, accumulator_config, is_active, created_at, updated_at')
-      .eq('site_id', siteId).eq('utility', utilityType)
-      .then(({ data }) => setMps((data || []) as MPRow[]))
-  }, [siteId, utilityType])
-
-  async function loadDataPreview() {
-    const { startIso, endIso } = getEnergyPeriodRange(selectedPeriod)
-    const summary = await Promise.all(mps.map(async (mp) => {
-      const { data } = await supabase.from('energy_readings_raw')
-        .select('value').eq('measurement_point_id', mp.id)
-        .gte('timestamp', startIso).lt('timestamp', endIso)
-      const readings = data || []
-      const sum = readings.reduce((s, r) => s + Number(r.value), 0)
-      return { id: mp.id, tag: mp.tag, count: readings.length, sum }
-    }))
-    setMpSummary(summary)
-  }
-
-  async function runBalance() {
-    setRunning(true)
-    const { startIso, endIso } = getEnergyPeriodRange(selectedPeriod)
-    const lookbackStart = new Date(startIso)
-    lookbackStart.setFullYear(lookbackStart.getFullYear() - 1)
-    const mpIds = mps.map((mp) => mp.id)
-
-    const [
-      { data: nodeRows },
-      { data: edgeRows },
-      { data: readings },
-      diagramVersionId,
-    ] = await Promise.all([
-      supabase.from('energy_diagram_nodes').select('*').eq('diagram_id', selectedDiagram),
-      supabase.from('energy_diagram_edges').select('*').eq('diagram_id', selectedDiagram),
-      supabase.from('energy_readings_raw')
-        .select('measurement_point_id, value, unit, timestamp')
-        .in('measurement_point_id', mpIds)
-        .gte('timestamp', lookbackStart.toISOString())
-        .lt('timestamp', endIso),
-      findPublishedVersionId(selectedDiagram),
-    ])
-
-    const graph = compileFromRows(selectedDiagram, diagramVersionId || selectedDiagram, nodeRows || [], edgeRows || [], mps)
-    const balance = calculateBalance(
-      graph,
-      (readings || []).map((reading) => ({
-        measurement_point_id: reading.measurement_point_id,
-        timestamp: reading.timestamp,
-        value: Number(reading.value),
-        unit: reading.unit,
-      })),
-      { from: new Date(startIso), to: new Date(endIso) },
-    )
-
-    const nodeResultsWithEffs = balance.nodeResults.map(nr => {
-      const effs = balance.equipmentEfficiencies.filter(e => e.nodeId === nr.nodeId)
-      return { ...nr, efficiencies: effs.length ? effs : undefined }
-    })
-
-    await supabase.from('energy_balances').insert({
-      site_id: siteId, utility: utilityType,
-      period_start: startIso, period_end: endIso,
-      total_input: balance.totalInput,
-      measured_consumption: balance.measuredConsumption,
-      calculated_consumption: balance.calculatedConsumption,
-      estimated_consumption: balance.estimatedConsumption,
-      technical_losses: balance.totalInput * (assumptions.technicalLossesPct / 100),
-      estimated_leaks: balance.totalInput * (assumptions.expectedLeaksPct / 100),
-      returns: balance.returns,
-      unaccounted_for: balance.unaccountedFor,
-      unaccounted_for_percent: balance.unaccountedForPercent,
-      measurement_coverage: balance.measurementCoverage,
-      node_results: nodeResultsWithEffs,
-      diagram_version_id: diagramVersionId,
-      notes,
-    })
-
-    setResult({
-      totalInput: balance.totalInput,
-      measured: balance.measuredConsumption + balance.calculatedConsumption,
-      unaccounted: balance.unaccountedFor,
-      coverage: balance.measurementCoverage,
-      unit: balance.unit,
-      nodeResults: nodeResultsWithEffs,
-      equipmentEfficiencies: balance.equipmentEfficiencies,
-    })
-    setRunning(false)
-    setStep(4)
-  }
-
-  const canRun = mps.length > 0 && Boolean(selectedDiagram)
-
-  return (
-    <div className="space-y-5">
-      {/* Step indicator */}
-      <div className="flex items-center gap-0">
-        {WIZARD_STEPS.map((s, i) => (
-          <div key={s.n} className="flex items-center flex-1">
-            <div className={`flex items-center gap-1.5 text-xs font-medium ${step >= s.n ? 'text-brand-blue' : 'text-gray-400'}`}>
-              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border ${step > s.n ? 'bg-emerald-500 text-white border-emerald-500' : step === s.n ? 'bg-brand-blue text-white border-brand-blue' : 'border-gray-300 text-gray-400'}`}>
-                {step > s.n ? '✓' : s.n}
-              </span>
-              {s.label}
+            <div className="flex flex-wrap gap-3 text-[10px] text-slate-400">
+              {[['bg-emerald-500','Medido'],['bg-amber-400','Estimado'],['bg-gray-300','Sin datos']].map(([cls,lbl]) => (
+                <span key={lbl} className="flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${cls}`} />{lbl}</span>
+              ))}
             </div>
-            {i < WIZARD_STEPS.length - 1 && (
-              <div className={`flex-1 h-px mx-2 ${step > s.n ? 'bg-emerald-400' : 'bg-gray-200'}`} />
+
+            {loading && <div className="flex justify-center py-16"><div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" /></div>}
+
+            {!loading && sheets.length === 0 && (
+              <div className="flex flex-col items-center py-20 text-center">
+                <Scale size={40} className="text-slate-200 mb-4" />
+                <h3 className="text-sm font-bold text-slate-600 mb-1">Sin balances todavía</h3>
+                <p className="text-xs text-slate-400 mb-5 max-w-xs">Crea un balance, arrastra los medidores como entradas/salidas y calcula el no-explicado.</p>
+                <Button size="sm" leftIcon={<Plus size={13} />} onClick={() => setShowNew(true)}>Crear primer balance</Button>
+              </div>
             )}
-          </div>
-        ))}
-      </div>
 
-      {/* Step 1 — Configurar */}
-      {step === 1 && (
-        <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 flex items-start gap-2">
-            <Info size={14} className="text-blue-600 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-blue-800">Balance para {getUtilityLabel(utilityType)}</p>
-              <p className="text-xs text-blue-600 mt-0.5">
-                {mps.length} puntos de medición disponibles.
-                {diagrams.length > 0 ? ` ${diagrams.length} diagrama(s) publicado(s).` : ' Sin diagramas publicados para este utility.'}
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-2">Diagrama publicado para balance</label>
-            <select value={selectedDiagram} onChange={(e) => setSelectedDiagram(e.target.value)}
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-surface cursor-pointer">
-              <option value="">Seleccionar diagrama publicado</option>
-              {diagrams.map((d) => (
-                <option key={d.id} value={d.id}>{d.name} ({d.status})</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Notas del balance</label>
-            <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ej: Lectura de cierre mensual"
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
-          </div>
-
-          {!canRun && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-100 text-sm text-amber-700">
-              <AlertTriangle size={14} /> Necesitas un diagrama publicado y puntos de medición para {getUtilityLabel(utilityType)}.
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Step 2 — Supuestos (Simulación) */}
-      {step === 2 && (
-        <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 flex items-start gap-2">
-            <Info size={14} className="text-blue-600 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-blue-800">Supuestos de Pérdidas</p>
-              <p className="text-xs text-blue-600 mt-0.5">
-                Define el porcentaje esperado de pérdidas técnicas y fugas para este balance.
-                Esto ayudará a categorizar la energía no explicada.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Pérdidas técnicas esperadas (%)</label>
-              <div className="relative">
-                <input
-                  type="number" step="0.1"
-                  value={assumptions.technicalLossesPct}
-                  onChange={(e) => setAssumptions(a => ({ ...a, technicalLossesPct: parseFloat(e.target.value) || 0 }))}
-                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                />
-              </div>
-              <p className="text-[10px] text-gray-500 mt-1">Transformación, calor, distancia.</p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Fugas estimadas (%)</label>
-              <div className="relative">
-                <input
-                  type="number" step="0.1"
-                  value={assumptions.expectedLeaksPct}
-                  onChange={(e) => setAssumptions(a => ({ ...a, expectedLeaksPct: parseFloat(e.target.value) || 0 }))}
-                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                />
-              </div>
-              <p className="text-[10px] text-gray-500 mt-1">Fugas menores aceptadas en red.</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3 — Revisar datos */}
-      {step === 3 && (
-        <div className="space-y-3">
-          <p className="text-sm text-gray-600 font-medium">Lecturas disponibles en el periodo seleccionado:</p>
-          {mpSummary.length === 0 ? (
-            <div className="py-4 text-center text-sm text-gray-400">Sin lecturas en el periodo.</div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-gray-50">
-                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Tag</th>
-                  <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">Lecturas</th>
-                  <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">Total</th>
-                  <th className="text-center px-3 py-2 text-xs font-medium text-gray-600">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mpSummary.map((m) => (
-                  <tr key={m.id} className="border-b border-gray-100">
-                    <td className="px-3 py-2 font-mono text-xs font-semibold text-brand-blue">{m.tag}</td>
-                    <td className="px-3 py-2 text-right font-mono">{m.count}</td>
-                    <td className="px-3 py-2 text-right font-mono">{m.sum.toLocaleString()}</td>
-                    <td className="px-3 py-2 text-center">
-                      <Badge size="sm" color={m.count > 0 ? 'green' : 'orange'}>
-                        {m.count > 0 ? 'Con datos' : 'Sin datos'}
-                      </Badge>
-                    </td>
-                  </tr>
+            {!loading && sheets.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {sheets.map((s) => (
+                  <SheetCard key={s.id} sheet={s} onOpen={() => setOpen(s)}
+                    onDelete={async () => {
+                      await supabase.from('energy_balance_sheets').delete().eq('id', s.id)
+                      setSheets((prev) => prev.filter((x) => x.id !== s.id))
+                    }} />
                 ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {/* Step 4 — Resultado */}
-      {step === 4 && result && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-100 rounded-lg text-sm text-emerald-700">
-            <CheckCircle size={15} /> Balance ejecutado y guardado correctamente.
-          </div>
-
-          <BalanceBar input={result.totalInput} measured={result.measured} unaccounted={result.unaccounted} unit={result.unit} />
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[
-              { label: 'Entrada', value: result.totalInput, color: 'text-brand-blue' },
-              { label: 'Medido', value: result.measured, color: 'text-emerald-600' },
-              { label: 'No explicado', value: result.unaccounted, color: 'text-red-500' },
-              { label: 'Cobertura', value: result.coverage, color: 'text-amber-600', suffix: '%' },
-            ].map((m) => (
-              <div key={m.label} className="bg-gray-50 rounded-xl p-3 border border-border text-center">
-                <p className="text-[10px] text-gray-400 mb-1">{m.label}</p>
-                <p className={`text-lg font-bold ${m.color}`}>
-                  {Number(m.value).toLocaleString('es', { maximumFractionDigits: 1 })}{m.suffix || ''}
-                </p>
               </div>
-            ))}
-          </div>
+            )}
+          </>
+        )}
 
-          {result.unaccounted / (result.totalInput || 1) > 0.1 && (
-            <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-100 rounded-lg text-sm text-amber-700">
-              <TrendingDown size={14} className="mt-0.5 shrink-0" />
-              El porcentaje no explicado supera el 10%. Revisa los puntos sin lecturas o posibles fugas.
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Navigation */}
-      <div className="flex justify-between pt-3 border-t border-border">
-        <div>
-          {step > 1 && step < 4 && (
-            <Button variant="secondary" size="sm" onClick={() => setStep(step - 1)}>← Anterior</Button>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={onCancel}>Cancelar</Button>
-          {step === 1 && (
-            <Button size="sm" disabled={!canRun} onClick={() => setStep(2)} rightIcon={<ChevronRight size={13} />}>
-              Siguiente
-            </Button>
-          )}
-          {step === 2 && (
-            <Button size="sm" onClick={() => { loadDataPreview(); setStep(3) }} rightIcon={<ChevronRight size={13} />}>
-              Revisar datos
-            </Button>
-          )}
-          {step === 3 && (
-            <Button size="sm" loading={running} onClick={runBalance} leftIcon={<Calculator size={13} />}>
-              Ejecutar balance
-            </Button>
-          )}
-          {step === 4 && (
-            <Button size="sm" onClick={onComplete} leftIcon={<CheckCircle size={13} />}>
-              Ver balances
-            </Button>
-          )}
-        </div>
+        {/* ── Tab: Variables relevantes ─────────────────────────────────── */}
+        {tab === 'variables' && selectedSiteId && (
+          <RelevantVariablesPage siteId={selectedSiteId} />
+        )}
       </div>
+
+      {showNew && selectedSiteId && tab === 'balances' && (
+        <NewSheetModal siteId={selectedSiteId}
+          onCreated={(s) => { setSheets((prev) => [s, ...prev]); setOpen(s); setShowNew(false) }}
+          onClose={() => setShowNew(false)} />
+      )}
     </div>
   )
 }

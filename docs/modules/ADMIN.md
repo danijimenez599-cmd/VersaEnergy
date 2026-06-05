@@ -31,10 +31,14 @@ Migracion: `00014_admin_settings.sql`.
 
 1. Layout de 4 tabs: Sitios y Organizacion, Tarifas y Energia, Usuarios y
    Roles, Parametros del Sistema.
-2. Cada tab tiene formularios y tablas editables.
+2. Sitios y Organizacion: lee/escribe `sites`.
+3. Tarifas y Energia: lee/escribe tarifas y factores energeticos.
+4. Usuarios y Roles: UI base pendiente de flujo completo de invitaciones/roles.
+5. Parametros del Sistema: UI base pendiente de persistencia completa.
 
-Estado actual: la estructura de base de datos esta completa. La UI tiene
-datos mock en frontend pendiente de conexion a Supabase JS.
+Estado actual: backend parcialmente conectado. Sitios y tarifas/factores ya
+trabajan con Supabase. Usuarios y Parametros conservan comportamiento de base
+visual hasta completar autorizacion operativa y persistencia fina.
 
 ## Invariantes
 

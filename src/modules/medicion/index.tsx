@@ -20,11 +20,17 @@ interface MP {
   measurement_type: string; quantity: string; unit: string
   accumulator_config: Record<string, unknown>
   source_type: string
+  target_id?: string | null
+  scope_asset_id?: string | null
+  physical_meter_asset_id?: string | null
+  meter_equipment_id?: string | null
+  domains?: string[] | null
 }
 
 interface RawReading {
   id: string; timestamp: string; value: number; unit: string; source: string
   import_batch_id?: string
+  measurement_event_type?: string | null
 }
 
 interface ValidatedReading {
@@ -42,7 +48,7 @@ interface ImportBatch {
 
 const TABS = [
   { id: 'capture',     label: 'Captura',       icon: Plus },
-  { id: 'imports',     label: 'Importaciones', icon: Package },
+  { id: 'imports',     label: 'Importaciones', icon: Package, status: 'EN DESARROLLO' },
   { id: 'quality',     label: 'Calidad',       icon: ShieldCheck },
   { id: 'validated',   label: 'Validadas',     icon: CheckCircle },
 ]
@@ -65,9 +71,9 @@ export default function MedicionPage() {
     if (selectedUtilityType) q = q.eq('utility', selectedUtilityType)
     // Scope to selected asset when an equipment or system is selected in the tree
     if (selectedAssetSourceId && selectedAssetType === 'equipment') {
-      q = q.or(`target_id.eq.${selectedAssetSourceId},meter_equipment_id.eq.${selectedAssetSourceId}`)
+      q = q.or(`target_id.eq.${selectedAssetSourceId},scope_asset_id.eq.${selectedAssetSourceId},physical_meter_asset_id.eq.${selectedAssetSourceId},meter_equipment_id.eq.${selectedAssetSourceId}`)
     } else if (selectedAssetSourceId && selectedAssetType === 'system') {
-      q = q.eq('target_id', selectedAssetSourceId)
+      q = q.or(`target_id.eq.${selectedAssetSourceId},scope_asset_id.eq.${selectedAssetSourceId}`)
     }
     q.then(({ data }) => setPoints(data || []))
   }, [selectedSiteId, selectedUtilityType, selectedAssetSourceId, selectedAssetType])
@@ -85,20 +91,29 @@ export default function MedicionPage() {
     if (!selectedPoint) return
     setLoading(true)
     const { startIso, endIso } = getEnergyPeriodRange(selectedPeriod)
+    const selectedPointMeta = points.find((p) => p.id === selectedPoint)
     const [{ data: raw }, { data: validated }] = await Promise.all([
-      supabase.from('energy_readings_raw')
-        .select('*').eq('measurement_point_id', selectedPoint)
-        .gte('timestamp', startIso).lt('timestamp', endIso)
-        .order('timestamp', { ascending: false }).limit(100),
+      supabase.from('measurement_readings')
+        .select('id, measurement_point_id, value, recorded_at, quality, measurement_event_type')
+        .eq('measurement_point_id', selectedPoint)
+        .gte('recorded_at', startIso).lt('recorded_at', endIso)
+        .order('recorded_at', { ascending: false }).limit(100),
       supabase.from('energy_readings_validated')
         .select('*').eq('measurement_point_id', selectedPoint)
         .gte('timestamp', startIso).lt('timestamp', endIso)
         .order('timestamp', { ascending: false }).limit(100),
     ])
-    setRawReadings(raw || [])
+    setRawReadings((raw || []).map((reading) => ({
+      id: reading.id,
+      timestamp: reading.recorded_at,
+      value: Number(reading.value),
+      unit: selectedPointMeta?.unit || '',
+      source: reading.quality || 'manual',
+      measurement_event_type: reading.measurement_event_type,
+    })))
     setValidatedReadings(validated || [])
     setLoading(false)
-  }, [selectedPeriod, selectedPoint])
+  }, [points, selectedPeriod, selectedPoint])
 
   useEffect(() => { loadReadings() }, [loadReadings])
 
@@ -151,6 +166,11 @@ export default function MedicionPage() {
               }`}
             >
               <t.icon size={14} />{t.label}
+              {'status' in t && (
+                <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-700">
+                  {t.status}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -200,6 +220,9 @@ function CaptureTab({
   const [timestamp, setTimestamp] = useState(new Date().toISOString().slice(0, 16))
   const [saving, setSaving] = useState(false)
   const [deltaPreview, setDeltaPreview] = useState<number | null>(null)
+  const [measurementEventType, setMeasurementEventType] = useState('')
+  const [eventNotes, setEventNotes] = useState('')
+  const [saveError, setSaveError] = useState('')
 
   // --- Routine Reading State ---
   const [routineTimestamp, setRoutineTimestamp] = useState(new Date().toISOString().slice(0, 16))
@@ -238,16 +261,16 @@ function CaptureTab({
     async function fetchLatest() {
       setLoadingLatest(true)
       const { data } = await supabase
-        .from('energy_readings_raw')
-        .select('measurement_point_id, value, timestamp')
+        .from('measurement_readings')
+        .select('measurement_point_id, value, recorded_at')
         .in('measurement_point_id', manualPoints.map((p) => p.id))
-        .order('timestamp', { ascending: false })
+        .order('recorded_at', { ascending: false })
 
       if (data) {
         const map: Record<string, { value: number; timestamp: string }> = {}
         for (const r of data) {
           if (!map[r.measurement_point_id]) {
-            map[r.measurement_point_id] = { value: Number(r.value), timestamp: r.timestamp }
+            map[r.measurement_point_id] = { value: Number(r.value), timestamp: r.recorded_at }
           }
         }
         setLatestReadings(map)
@@ -261,18 +284,28 @@ function CaptureTab({
   async function handleSave() {
     const v = parseFloat(value)
     if (isNaN(v)) return
+    if (isNegativeDelta && !measurementEventType) {
+      setSaveError('Declara cambio/reset/rollover/corrección para aceptar una lectura menor.')
+      return
+    }
     setSaving(true)
-    await supabase.from('energy_readings_raw').upsert(
-      {
-        measurement_point_id: point!.id,
-        timestamp: new Date(timestamp).toISOString(),
-        value: v,
-        unit: point!.unit,
-        source: 'manual',
-      },
-      { onConflict: 'measurement_point_id, timestamp' }
-    )
-    setValue('')
+    setSaveError('')
+    const { error } = await supabase.rpc('fn_record_measurement_reading_tx', {
+      p_measurement_point_id: point!.id,
+      p_value: v,
+      p_recorded_at: new Date(timestamp).toISOString(),
+      p_quality: 'manual',
+      p_notes: 'Captura manual desde modulo Medicion',
+      p_measurement_event_type: measurementEventType || null,
+      p_event_notes: eventNotes || null,
+    })
+    if (error) {
+      setSaveError(error.message)
+    } else {
+      setValue('')
+      setMeasurementEventType('')
+      setEventNotes('')
+    }
     setSaving(false)
     onSave()
   }
@@ -295,9 +328,18 @@ function CaptureTab({
     setSavingRoutine(true)
     setRoutineSuccess(false)
 
-    const { error } = await supabase.from('energy_readings_raw').upsert(rows, {
-      onConflict: 'measurement_point_id, timestamp',
-    })
+    const results = await Promise.all(rows.map((row) =>
+      supabase.rpc('fn_record_measurement_reading_tx', {
+        p_measurement_point_id: row.measurement_point_id,
+        p_value: row.value,
+        p_recorded_at: row.timestamp,
+        p_quality: 'manual',
+        p_notes: 'Captura manual por rutina de medicion',
+        p_measurement_event_type: null,
+        p_event_notes: null,
+      })
+    ))
+    const error = results.find((result) => result.error)?.error
 
     setSavingRoutine(false)
     if (error) {
@@ -309,16 +351,16 @@ function CaptureTab({
 
       // Reload latest readings
       const { data } = await supabase
-        .from('energy_readings_raw')
-        .select('measurement_point_id, value, timestamp')
+        .from('measurement_readings')
+        .select('measurement_point_id, value, recorded_at')
         .in('measurement_point_id', manualPoints.map((p) => p.id))
-        .order('timestamp', { ascending: false })
+        .order('recorded_at', { ascending: false })
 
       if (data) {
         const map: Record<string, { value: number; timestamp: string }> = {}
         for (const r of data) {
           if (!map[r.measurement_point_id]) {
-            map[r.measurement_point_id] = { value: Number(r.value), timestamp: r.timestamp }
+            map[r.measurement_point_id] = { value: Number(r.value), timestamp: r.recorded_at }
           }
         }
         setLatestReadings(map)
@@ -403,6 +445,38 @@ function CaptureTab({
                     Delta calculado: {deltaPreview > 0 ? '+' : ''}
                     {deltaPreview.toFixed(3)} {point.unit}
                     {isNegativeDelta && ' — posible reset o lectura incorrecta'}
+                  </div>
+                )}
+
+                {isNegativeDelta && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                    <p className="text-xs font-bold text-amber-800">
+                      Lectura menor detectada. Declara el evento para continuar.
+                    </p>
+                    <select
+                      value={measurementEventType}
+                      onChange={(e) => setMeasurementEventType(e.target.value)}
+                      className={inputClass}
+                    >
+                      <option value="">Seleccionar evento...</option>
+                      <option value="meter_reset">Reset del medidor</option>
+                      <option value="meter_changed">Cambio de medidor</option>
+                      <option value="meter_rollover">Rollover</option>
+                      <option value="manual_correction">Corrección manual</option>
+                    </select>
+                    <textarea
+                      value={eventNotes}
+                      onChange={(e) => setEventNotes(e.target.value)}
+                      className={inputClass}
+                      rows={2}
+                      placeholder="Nota de justificación"
+                    />
+                  </div>
+                )}
+
+                {saveError && (
+                  <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                    {saveError}
                   </div>
                 )}
 
@@ -653,8 +727,10 @@ function ImportsTab({ points, siteId, batches, onImportComplete }: {
   const [loading, setLoading] = useState(false)
   const [batchIssues, setBatchIssues] = useState<{ row: number; issues: { field: string; message: string }[] }[]>([])
   const [selectedBatch, setSelectedBatch] = useState<ImportBatch | null>(null)
+  const importEnabled = false
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!importEnabled) return
     const file = e.target.files?.[0]; if (!file) return
     const reader = new FileReader()
     reader.onload = (ev) => {
@@ -670,6 +746,7 @@ function ImportsTab({ points, siteId, batches, onImportComplete }: {
   }
 
   async function handleImport() {
+    if (!importEnabled) return
     if (!mapping.timestamp || !mapping.value || !siteId) return
     setLoading(true)
     const file = (document.getElementById('csv-file') as HTMLInputElement)?.files?.[0]
@@ -746,9 +823,15 @@ function ImportsTab({ points, siteId, batches, onImportComplete }: {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {/* Import wizard */}
       <Card>
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Importar CSV</h3>
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">Importar CSV</h3>
+            <p className="mt-0.5 text-xs text-gray-400">Canal disenado para futuro, no productivo en E5.</p>
+          </div>
+          <Badge color="orange" size="sm">EN DESARROLLO</Badge>
+        </div>
         <div className="space-y-3">
-          <input id="csv-file" type="file" accept=".csv,.txt" onChange={handleFile} className="text-sm" />
+          <input id="csv-file" type="file" accept=".csv,.txt" onChange={handleFile} disabled={!importEnabled} className="text-sm disabled:opacity-50" />
 
           {points.length > 0 && (
             <div>
@@ -789,7 +872,7 @@ function ImportsTab({ points, siteId, batches, onImportComplete }: {
               </div>
 
               <Button size="sm" onClick={handleImport} loading={loading} leftIcon={<Upload size={13} />}
-                disabled={!mapping.timestamp || !mapping.value}>
+                disabled={!importEnabled || !mapping.timestamp || !mapping.value}>
                 Importar
               </Button>
 
@@ -874,12 +957,14 @@ function QualityTab({ points, siteId, selectedPeriod }: { points: MP[]; siteId: 
     const { startIso, endIso } = getEnergyPeriodRange(selectedPeriod)
 
     Promise.all(points.map(async (mp) => {
-      const { data } = await supabase.from('energy_readings_raw')
-        .select('timestamp, value').eq('measurement_point_id', mp.id)
-        .gte('timestamp', startIso).lt('timestamp', endIso)
-        .order('timestamp')
+      const { data } = await supabase.from('measurement_readings')
+        .select('recorded_at, value').eq('measurement_point_id', mp.id)
+        .gte('recorded_at', startIso).lt('recorded_at', endIso)
+        .order('recorded_at')
       const readings = data || []
-      const sorted = readings.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      const sorted = readings
+        .map((reading) => ({ timestamp: reading.recorded_at, value: Number(reading.value) }))
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
       const gaps = detectGaps(sorted, 24).length // 24h expected interval
       const validPct = readings.length > 0 ? 100 : 0
       const lastTs = sorted[sorted.length - 1]?.timestamp ?? null
